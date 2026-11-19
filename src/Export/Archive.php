@@ -112,6 +112,8 @@ final class Archive
         }
         $total = 0;
         $seen = [];
+        $folders = [];
+        $fileKeys = [];
         for ($i = 0; $i < $count; $i++) {
             $stat = $this->zip->statIndex($i);
             if ($stat === false) {
@@ -123,10 +125,19 @@ final class Archive
             if (!Paths::isSafe($path)) {
                 throw new Refusal('the export has an entry whose name could leave the target folder');
             }
-            if (isset($seen[$path])) {
+            if (!Paths::fitsDisk($path)) {
+                throw new Refusal('the export has an entry whose name is too long for a disk');
+            }
+            $key = Paths::key($path);
+            if (isset($seen[$key])) {
                 throw new Refusal('the export names the same path twice');
             }
-            $seen[$path] = true;
+            $seen[$key] = true;
+            $segments = explode('/', $path);
+            // A file's own name is not a folder; every name before it is.
+            for ($n = 1, $last = count($segments) - ($isDir ? 0 : 1); $n <= $last; $n++) {
+                $folders[Paths::key(implode('/', array_slice($segments, 0, $n)))] = true;
+            }
             $opsys = 0;
             $attributes = 0;
             if ($this->zip->getExternalAttributesIndex($i, $opsys, $attributes)) {
@@ -143,6 +154,12 @@ final class Archive
                 throw new Refusal('the export is larger than maxBytes once unpacked');
             }
             $this->files[$path] = $name;
+            $fileKeys[] = $key;
+        }
+        foreach ($fileKeys as $key) {
+            if (isset($folders[$key])) {
+                throw new Refusal('the export has a file and a folder with the same name');
+            }
         }
     }
 }

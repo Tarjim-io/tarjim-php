@@ -34,6 +34,41 @@ final class Paths
         return stripos($segments[0], self::OWN_PREFIX) !== 0;
     }
 
+    /** Longest name and path the common file systems accept, in bytes. */
+    private const MAX_NAME = 255;
+    private const MAX_PATH = 1024;
+
+    /** Whether no segment and not the whole path is longer than a disk will take. */
+    public static function fitsDisk(string $path): bool
+    {
+        if (strlen($path) > self::MAX_PATH) {
+            return false;
+        }
+        foreach (explode('/', $path) as $segment) {
+            if (strlen($segment) > self::MAX_NAME) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * What two paths are compared by: names that differ only in case, or in Unicode form, are one
+     * file on some disks, so they must be one here too.
+     */
+    public static function key(string $path): string
+    {
+        if (class_exists('Normalizer')) {
+            $normal = \Normalizer::normalize($path, \Normalizer::FORM_C);
+            if (is_string($normal)) {
+                $path = $normal;
+            }
+        }
+
+        return function_exists('mb_strtolower') ? mb_strtolower($path, 'UTF-8') : strtolower($path);
+    }
+
     /** A plain file name: a safe path of one segment. */
     public static function isBasename(string $name): bool
     {
