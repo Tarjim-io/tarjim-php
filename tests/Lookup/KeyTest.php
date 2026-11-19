@@ -109,4 +109,15 @@ final class KeyTest extends LookupCase
         self::assertSame('proto', $client->t('__proto__'));
         self::assertSame('ctor', $client->t('constructor'));
     }
+
+    public function testOneOddKeyNameDoesNotHideTheRestOfTheLanguage(): void
+    {
+        $release = self::leaves(new ReleaseBuilder('7'), 'ns1', ['type' => 'namespace', 'name' => 'default', 'layout' => 'flat'], 'en', [
+            "\0starts.with.nul" => ['id' => '1', 'value' => 'odd'],
+            'hello' => ['id' => '2', 'value' => 'Hello'],
+        ]);
+        $client = $this->installed($release, ['locale' => 'en']);
+
+        self::assertSame('Hello', $client->t('hello'));
+    }
 }

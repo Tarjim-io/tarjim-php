@@ -50,4 +50,20 @@ final class ReloadTest extends LookupCase
 
         self::assertSame('Seven', $reader->t('hello'));
     }
+
+    public function testALanguageFileThatCouldNotBeReadIsTriedAgain(): void
+    {
+        $reader = $this->installed($this->release('7', ['hello' => 'Seven']), ['locale' => 'en']);
+        $objects = glob($this->dir . '/objects/*.json') ?: [];
+        foreach ($objects as $file) {
+            rename($file, $file . '.away');
+        }
+        self::assertSame('hello', $reader->t('hello'));
+        foreach ($objects as $file) {
+            rename($file . '.away', $file);
+        }
+        $this->laterBy(2);
+
+        self::assertSame('Seven', $reader->t('hello'));
+    }
 }

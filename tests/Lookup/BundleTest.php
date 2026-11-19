@@ -92,4 +92,49 @@ final class BundleTest extends LookupCase
         self::assertSame('Hello from the namespace', $client->t('hello'));
         self::assertSame('hello', $client->t('hello', [], ['bundle' => 'app']));
     }
+
+    public function testASkippedNestedBundleIsLogged(): void
+    {
+        $release = self::leaves($this->fixture(), 'cb9', ['type' => 'custom', 'name' => 'app', 'layout' => 'nested'], 'en', []);
+        $this->installed($release, ['locale' => 'en']);
+        $warnings = array_values(array_filter($this->logged, static function (array $entry): bool {
+            return in_array($entry[0], ['warning', 'notice', 'info'], true) && strpos($entry[1], 'app') !== false;
+        }));
+
+        self::assertCount(1, $warnings);
+    }
+
+    public function testANestedCustomBundleHidesAFlatNamespaceOfTheSameNameForLookupsToo(): void
+    {
+        $release = self::leaves($this->fixture(), 'cb9', ['type' => 'custom', 'name' => 'backend', 'layout' => 'nested'], 'en', []);
+        $client = $this->installed($release, ['locale' => 'en']);
+
+        self::assertSame('hello', $client->t('hello', [], ['bundle' => 'backend']));
+        self::assertSame('Hello from the namespace', $client->t('hello'));
+    }
+
+    public function testALayoutOtherThanFlatIsNeverServed(): void
+    {
+        $release = self::leaves($this->fixture(), 'cb9', ['type' => 'custom', 'name' => 'odd', 'layout' => 'Flat'], 'en', [
+            'hello' => ['id' => '1', 'value' => 'odd text'],
+        ]);
+        $client = $this->installed($release, ['locale' => 'en']);
+
+        self::assertSame('hello', $client->t('hello', [], ['bundle' => 'odd']));
+        self::assertSame('Hello from the namespace', $client->t('hello'));
+    }
+
+    public function testAConfiguredBundleWithAnUnknownLayoutIsReportedAsNotFlat(): void
+    {
+        $release = self::leaves(new ReleaseBuilder('7'), 'cb1', ['type' => 'custom', 'name' => 'web', 'layout' => 'columns'], 'en', [
+            'hello' => ['id' => '1', 'value' => 'x'],
+        ]);
+        $this->serve($release);
+        $result = $this->refresh([], ['bundle' => 'web']);
+
+        self::assertSame(\Tarjim\RefreshResult::MISCONFIGURED, $result->status);
+        self::assertStringContainsString('web', $result->message);
+        self::assertStringNotContainsString('nested', $result->message);
+        self::assertStringContainsStringIgnoringCase('flat', $result->message);
+    }
 }
