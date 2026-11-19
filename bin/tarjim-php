@@ -11,5 +11,4 @@ foreach ([__DIR__ . '/../../../autoload.php', __DIR__ . '/../vendor/autoload.php
     }
 }
 
-fwrite(STDERR, "tarjim-php: no commands yet\n");
-exit(2);
+exit((new Tarjim\Cli\Application())->run(array_slice($argv, 1), STDOUT, STDERR));
