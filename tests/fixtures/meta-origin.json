@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "projectId": 1,
+  "distribution": "dst_example",
+  "stage": "dev",
+  "releaseId": "7",
+  "checksum": "0000000000000000000000000000000000000000000000000000000000000000",
+  "manifestUrl": "released/7/manifest",
+  "slicesBaseUrl": "released/slices/",
+  "authenticated": true,
+  "keyCount": 2,
+  "totalBytes": 120,
+  "pollAfter": 300
+}

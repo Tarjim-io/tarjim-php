@@ -1,0 +1,42 @@
+{
+    "name": "tarjim/tarjim-php",
+    "description": "Serve text released from Tarjim from a local copy, refreshed from a Tarjim delivery distribution.",
+    "type": "library",
+    "license": "MIT",
+    "keywords": ["tarjim", "i18n", "localization", "translation"],
+    "require": {
+        "php": ">=7.4",
+        "ext-json": "*",
+        "ext-curl": "*"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^9.6",
+        "phpstan/phpstan": "^1.12"
+    },
+    "suggest": {
+        "ext-dom": "Needed by tHtml().",
+        "ext-mbstring": "Needed by keyCase 'lower'.",
+        "ext-zip": "Needed by export pulls."
+    },
+    "autoload": {
+        "psr-4": {
+            "Tarjim\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Tarjim\\Tests\\": "tests/"
+        }
+    },
+    "bin": ["bin/tarjim-php"],
+    "config": {
+        "platform": {
+            "php": "7.4.33"
+        },
+        "sort-packages": true
+    },
+    "scripts": {
+        "test": "phpunit",
+        "analyse": "phpstan analyse --no-progress"
+    }
+}

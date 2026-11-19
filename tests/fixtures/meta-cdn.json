@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "projectId": 1,
+  "distribution": "dst_example",
+  "stage": "prod",
+  "releaseId": "7",
+  "checksum": "0000000000000000000000000000000000000000000000000000000000000000",
+  "manifestUrl": "https://cdn.example.test/r/7/manifest",
+  "slicesBaseUrl": "https://cdn.example.test/r/slices/",
+  "authenticated": false,
+  "signedQuery": "Expires=1700000000&Signature=not-a-real-signature&Key-Pair-Id=EXAMPLE",
+  "signatureExpires": 1700000000
+}

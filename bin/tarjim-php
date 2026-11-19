@@ -1,0 +1,15 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+// Installed as vendor/bin/tarjim-php, or run from a checkout of this package.
+foreach ([__DIR__ . '/../../../autoload.php', __DIR__ . '/../vendor/autoload.php'] as $autoload) {
+    if (is_file($autoload)) {
+        require $autoload;
+        break;
+    }
+}
+
+fwrite(STDERR, "tarjim-php: no commands yet\n");
+exit(2);

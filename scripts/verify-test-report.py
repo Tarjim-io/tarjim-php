@@ -1,0 +1,184 @@
+#!/usr/bin/env python3
+"""Gate a PHPUnit `--log-junit` report. Exit 0 is the only pass.
+
+  Mint the declared list from a RED run (the tests that failed):
+    verify-test-report.py --report red.xml --emit-declared declared.json
+
+  Check a later run against it:
+    verify-test-report.py --report green.xml --declared declared.json \
+        --expect passing --since 2026-10-02T20:00:00Z
+
+Exit codes: 0 pass, 1 gate failure, 2 usage error.
+
+The declared list is derived from a report, never written by hand, so it cannot under-declare;
+re-asserting it at every later run is what turns a deleted test into a failure. A skipped or
+incomplete test is refused twice: in the report, and at the source (any `markTestSkipped` or
+`markTestIncomplete` under --tests). A class whose setUpBeforeClass or tearDownAfterClass failed shows
+up as a failure of that method, not of its tests; RED refuses to mint from it.
+
+RED also refuses to mint when a test failed for a reason other than an assertion or the skeleton's
+`LogicException('not implemented')`: a TypeError, a missing class or a harness exception means the
+test never reached the behaviour it is about. Passing that check does not prove the RIGHT assertion
+failed: read the failure messages before minting.
+"""
+
+import argparse
+import datetime
+import json
+import os
+import sys
+import xml.etree.ElementTree as ET
+
+
+def fail(message, code=1):
+    print(f"[FAIL] {message}", file=sys.stderr)
+    sys.exit(code)
+
+
+SUITE_HOOKS = ("setUpBeforeClass", "tearDownAfterClass")
+SKIP_MARKERS = ("markTestSkipped", "markTestIncomplete")
+
+
+def report_files(path):
+    return [path]
+
+
+def read_report(path):
+    roots = []
+    for candidate in report_files(path):
+        try:
+            roots.append(ET.parse(candidate).getroot())
+        except (OSError, ET.ParseError) as error:
+            fail(f"cannot read report {candidate}: {error}")
+    results = {}
+    reasons = {}
+    for case in (case for root in roots for case in root.iter("testcase")):
+        key = (case.get("class") or case.get("classname", ""), case.get("name", ""))
+        if key in results:
+            fail(f"duplicate test in report: {key[0]}.{key[1]}")
+        if case.find("skipped") is not None or case.find("incomplete") is not None:
+            outcome = "skipped"
+        elif case.find("failure") is not None:
+            outcome = "failed"
+            reasons[key] = None
+        elif case.find("error") is not None:
+            outcome = "failed"
+            error = case.find("error")
+            text = error.text or ""
+            if error.get("type") == "LogicException" and "not implemented" in text:
+                reasons[key] = None
+            else:
+                # PHPUnit writes "Class::method", then the message, then the trace.
+                lines = [line for line in text.strip().splitlines() if line.strip()]
+                reasons[key] = f'{error.get("type")}: {lines[1] if len(lines) > 1 else ""}'
+        else:
+            outcome = "passed"
+        results[key] = outcome
+    if not results:
+        fail(f"{path} records no test cases: the suite did not run")
+    return results, reasons
+
+
+def parse_since(value):
+    try:
+        moment = datetime.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        fail(f"--since is not an ISO-8601 timestamp: {value}", 2)
+    if moment.tzinfo is None:
+        fail("--since needs a time zone (use the trailing Z)", 2)
+    return moment
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--report", required=True)
+    parser.add_argument("--emit-declared")
+    parser.add_argument("--declared")
+    parser.add_argument("--expect", choices=["failing", "passing"])
+    parser.add_argument("--since")
+    parser.add_argument("--tests", default="tests", help="test sources that must not skip (default: tests)")
+    parser.add_argument("--renames", help='JSON {"Suite.oldName": "Suite.newName"}: declared tests renamed on purpose; the successor must pass')
+    args = parser.parse_args()
+
+    if not os.path.isdir(args.tests):
+        fail(f"--tests {args.tests} is not a directory", 2)
+    skips = []
+    for directory, _, files in os.walk(args.tests):
+        for name in files:
+            if name.endswith(".php"):
+                with open(os.path.join(directory, name), encoding="utf-8") as handle:
+                    skips += [f"{os.path.join(directory, name)}:{n}" for n, line in enumerate(handle, 1) if any(m in line for m in SKIP_MARKERS)]
+    if skips:
+        fail("a skipped or incomplete test proves nothing; remove: " + ", ".join(skips))
+
+    results, reasons = read_report(args.report)
+    skipped = [f"{s}.{n}" for (s, n), o in sorted(results.items()) if o == "skipped"]
+    if skipped:
+        fail("skipped in the report: " + ", ".join(skipped))
+    crashed = sorted({s for (s, n), o in results.items() if o == "failed" and any(n.endswith(h) for h in SUITE_HOOKS)})
+
+    if args.emit_declared:
+        if args.declared or args.expect or args.since:
+            fail("--emit-declared cannot be combined with verification flags", 2)
+        if crashed:
+            fail("a class failed in its setup or teardown, so its tests did not really run: " + ", ".join(crashed))
+        wrong = [f"{s}.{n} ({reasons[(s, n)]})" for (s, n), o in sorted(results.items()) if o == "failed" and reasons.get((s, n))]
+        if wrong:
+            for line in wrong:
+                print(f"  {line}", file=sys.stderr)
+            fail(f"{len(wrong)} test(s) failed for a reason other than an assertion or a missing implementation")
+        if os.path.exists(args.emit_declared):
+            fail(f"{args.emit_declared} exists; a declared list is never rewritten", 2)
+        declared = [{"suite": suite, "name": name} for (suite, name), outcome in sorted(results.items()) if outcome == "failed"]
+        if not declared:
+            fail("no test failed: nothing to declare (is this really a RED run?)")
+        with open(args.emit_declared, "w", encoding="utf-8") as handle:
+            json.dump(declared, handle, indent=2)
+            handle.write("\n")
+        print(f"[OK] declared {len(declared)} failing tests of {len(results)} in the report -> {args.emit_declared}")
+        return
+
+    if not (args.declared and args.expect and args.since):
+        fail("give --emit-declared, or --declared with --expect and --since", 2)
+
+    with open(args.declared, encoding="utf-8") as handle:
+        declared = [(entry["suite"], entry["name"]) for entry in json.load(handle)]
+    if not declared:
+        fail("the declared list is empty")
+
+    since = parse_since(args.since)
+    for path in report_files(args.report):
+        modified = datetime.datetime.fromtimestamp(os.path.getmtime(path), datetime.timezone.utc)
+        if modified < since:
+            fail(f"report {path} written {modified.isoformat()} is older than --since {since.isoformat()}")
+    freshness = f"every report file written >= {since.isoformat()}"
+
+    renames = {}
+    if args.renames:
+        with open(args.renames, encoding="utf-8") as handle:
+            renames = {tuple(k.rsplit(".", 1)): tuple(v.rsplit(".", 1)) for k, v in json.load(handle).items()}
+    wanted = "failed" if args.expect == "failing" else "passed"
+    problems = []
+    applied = []
+    for suite, name in declared:
+        if (suite, name) in renames and (suite, name) not in results:
+            applied.append(f"{name} -> {renames[(suite, name)][1]}")
+            suite, name = renames[(suite, name)]
+        outcome = results.get((suite, name))
+        if outcome is None:
+            problems.append(f"missing from report: {suite}.{name}")
+        elif outcome != wanted:
+            problems.append(f"{outcome}, want {wanted}: {suite}.{name}")
+    if args.expect == "passing":
+        problems += [f"failed (undeclared): {s}.{n}" for (s, n), o in sorted(results.items()) if o == "failed" and (s, n) not in declared]
+    if problems:
+        for problem in problems:
+            print(f"  {problem}", file=sys.stderr)
+        fail(f"{len(problems)} problem(s) against {args.declared}")
+
+    renamed = f"; renamed: {', '.join(applied)}" if applied else ""
+    print(f"[OK] {len(declared)} declared tests {wanted}; {len(results)} in report; freshness: {freshness}{renamed}")
+
+
+if __name__ == "__main__":
+    main()

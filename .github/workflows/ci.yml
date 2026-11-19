@@ -1,0 +1,37 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: php ${{ matrix.php }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['7.4', '8.2', '8.4']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: curl, json, dom, mbstring, zip
+          coverage: none
+          tools: composer:v2
+      # No lock file (a library); composer.json pins the platform to PHP 7.4, so every leg
+      # installs the same versions.
+      - run: composer update --no-interaction --no-progress --prefer-dist
+      - run: vendor/bin/phpunit
+      - if: matrix.php == '8.4'
+        run: vendor/bin/phpstan analyse --no-progress
