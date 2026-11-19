@@ -52,9 +52,9 @@ final class ObjectUrl
         if ($base === null || $ref === null || $base['scheme'] === null || $base['authority'] === null) {
             return null;
         }
-        // A relative path that starts with a delimiter or a dot is the shape of an authority
-        // continuation (".evil", "-evil", ":8443") under a naive concatenation: refuse it outright.
-        if ($ref['scheme'] === null && $ref['authority'] === null && $ref['path'] !== '' && preg_match('/^[A-Za-z0-9_%~]/', $ref['path']) !== 1) {
+        // RFC 3986 forbids a colon in the first segment of a relative path (it would read as a
+        // scheme); ":8443/x" is a port written as a path, so it is refused rather than guessed at.
+        if ($ref['scheme'] === null && $ref['authority'] === null && strpos(explode('/', $ref['path'], 2)[0], ':') !== false) {
             return null;
         }
 

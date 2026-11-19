@@ -47,9 +47,7 @@ final class PathlessDeliveryUrlTest extends TestCase
     public function escapes(): iterable
     {
         yield 'credentials then another host' => ['@evil.example.test/m.json'];
-        yield 'a longer host' => ['.evil.example.test/m.json'];
         yield 'another port' => [':8443/m.json'];
-        yield 'another host after a dash' => ['-evil.example.test/m.json'];
     }
 
     /** @dataProvider escapes */
@@ -71,5 +69,31 @@ final class PathlessDeliveryUrlTest extends TestCase
 
         self::assertSame([], $this->fake->requests);
         self::assertSame(Outcome::REFUSED, $result->results[str_repeat('a', 64)]->kind);
+    }
+
+    /** @return iterable<string, array{string}> */
+    public function hostLookalikePaths(): iterable
+    {
+        yield 'a longer host' => ['.evil.example.test/m.json'];
+        yield 'another host after a dash' => ['-evil.example.test/m.json'];
+    }
+
+    /** @dataProvider hostLookalikePaths */
+    public function testAReferenceShapedLikeAHostStaysAPathOnTheOrigin(string $reference): void
+    {
+        $meta = $this->meta($reference);
+        (new DeliveryClient($this->fake, self::DELIVERY, ReleaseBuilder::KEY))->fetchManifest($meta);
+
+        self::assertSame(['https://delivery.example.test/' . $reference], $this->fake->urls());
+    }
+
+    /** @dataProvider hostLookalikePaths */
+    public function testASlicesBaseShapedLikeAHostStaysAPathOnTheOrigin(string $reference): void
+    {
+        $meta = $this->meta('released/7/manifest', str_replace('m.json', '', $reference));
+        (new DeliveryClient($this->fake, self::DELIVERY, ReleaseBuilder::KEY))
+            ->fetchFiles($meta, [new \Tarjim\Wire\FileRef(str_repeat('a', 64), 10)]);
+
+        self::assertSame(['https://delivery.example.test/' . str_replace('m.json', '', $reference) . str_repeat('a', 64) . '.json'], $this->fake->urls());
     }
 }
