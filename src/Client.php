@@ -4,6 +4,10 @@ declare(strict_types=1);
 
 namespace Tarjim;
 
+use Tarjim\Cycle\Refresher;
+use Tarjim\Store\Disk;
+use Tarjim\Store\Store;
+
 final class Client
 {
     /** @var Config */
@@ -46,17 +50,49 @@ final class Client
     /** @param array<string, mixed> $options */
     public function refresh(array $options = []): RefreshResult
     {
-        $problems = $this->config->refreshProblems();
-        if ($problems !== []) {
-            return new RefreshResult(RefreshResult::MISCONFIGURED, implode('; ', $problems));
+        try {
+            $result = (new Refresher($this->config))->run($options);
+        } catch (\Throwable $e) {
+            $result = new RefreshResult(RefreshResult::FAILED, 'the refresh failed unexpectedly');
+        }
+        if ($result->status === RefreshResult::FAILED || $result->status === RefreshResult::MISCONFIGURED) {
+            $this->log($result->status === RefreshResult::FAILED ? 'warning' : 'error', $result->message);
         }
 
-        throw new \LogicException('not implemented');
+        return $result;
     }
 
+    /** Reads the store only: no network, no log, no exception. */
     public function status(): Status
     {
-        return new Status();
+        $status = new Status();
+        try {
+            $dir = $this->config->get('dir');
+            $disk = $this->config->get('disk');
+            if (!is_string($dir) || !$disk instanceof Disk) {
+                return $status;
+            }
+            $store = new Store($disk, $dir);
+            $state = $store->readState();
+            $held = $store->held();
+            $status->lastCheckAt = $state->lastCheckAt;
+            $status->lastSuccessAt = $state->lastSuccessAt;
+            if ($held === null) {
+                return $status;
+            }
+            $status->releaseId = $held->releaseId;
+            $status->distribution = $held->distribution;
+            $status->stage = $held->stage;
+            $status->installedAt = $held->installedAt;
+            $status->source = 'store';
+            $clock = $this->config->get('now');
+            $now = $clock === null ? time() : (int) $clock();
+            $staleAfter = $this->config->get('staleAfter');
+            $status->stale = $state->lastSuccessAt === null || $now - $state->lastSuccessAt > (is_int($staleAfter) ? $staleAfter : 86400);
+        } catch (\Throwable $e) {
+        }
+
+        return $status;
     }
 
     /**
