@@ -22,6 +22,7 @@ final class Refresher
     private const FLOOR = 60;
     /** A wait further ahead than this is a corrupt or hostile state file, not a Retry-After. */
     private const LONGEST_WAIT = 86400;
+    private const CLOCK_SLACK = 86400;
     private const BUSY_STEP = 1;
     private const UNWRITTEN = 'the store state could not be written';
 
@@ -98,8 +99,9 @@ final class Refresher
         if ($state->lastCheckAt !== null && $state->lastCheckAt <= $now) {
             $due = max($due, $state->lastCheckAt + self::FLOOR);
         }
-        // Clamped, not ignored: a small step back of the clock must not release a wait at the cap.
-        if ($state->notBefore !== null) {
+        // A wait recorded at the cap and read after the clock stepped back by up to a day is still a
+        // real wait, so it is clamped; anything further out is corrupt and ignored.
+        if ($state->notBefore !== null && $state->notBefore - $now <= self::LONGEST_WAIT + self::CLOCK_SLACK) {
             $due = max($due, min($state->notBefore, $now + self::LONGEST_WAIT));
         }
         if ($due > $now) {
@@ -126,13 +128,7 @@ final class Refresher
 
                 return [$this->unchanged($store, $state, $now, $held), null];
             case Outcome::UNRELEASED:
-                $state->lastSuccessAt = $now;
-                $state->notBefore = null;
-                if (!$store->writeState($state)) {
-                    return [$this->result(RefreshResult::FAILED, self::UNWRITTEN, null, $store), null];
-                }
-
-                return [$this->result(RefreshResult::UNRELEASED, 'the stage has no release yet', null, $store), self::FLOOR];
+                return [$this->unreleased($store, $state, $now), self::FLOOR];
             case Outcome::CONFIGURATION:
                 $why = 'Tarjim refused the delivery URL or key (HTTP ' . (int) $outcome->status . ($outcome->code !== null ? ', ' . $outcome->code : '') . ')';
 
@@ -246,6 +242,17 @@ final class Refresher
         $store->prune($now, $installed);
 
         return $this->result(RefreshResult::UPDATED, 'release ' . $meta->releaseId . ' installed', null, $store);
+    }
+
+    private function unreleased(Store $store, State $state, int $now): RefreshResult
+    {
+        $state->lastSuccessAt = $now;
+        $state->notBefore = null;
+        if (!$store->writeState($state)) {
+            return $this->result(RefreshResult::FAILED, self::UNWRITTEN, null, $store);
+        }
+
+        return $this->result(RefreshResult::UNRELEASED, 'the stage has no release yet', null, $store);
     }
 
     private function unchanged(Store $store, State $state, int $now, HeldCopy $held): RefreshResult
