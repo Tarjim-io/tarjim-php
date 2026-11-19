@@ -196,7 +196,9 @@ final class Client
 
     public function exports(): Export\Exports
     {
-        throw new \LogicException('not implemented');
+        return new Export\Exports($this->config, function (string $level, string $message): void {
+            $this->log($level, $message);
+        });
     }
 
     /**
