@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tarjim;
 
 use Tarjim\Cycle\Refresher;
+use Tarjim\Lookup\Placeholders;
 use Tarjim\Lookup\Reader;
 use Tarjim\Store\Disk;
 use Tarjim\Store\Store;
@@ -108,8 +109,6 @@ final class Client
     }
 
     /**
-     * Placeholders are not filled yet.
-     *
      * @param array<string, mixed> $args
      * @param array<string, mixed> $options
      */
@@ -118,10 +117,14 @@ final class Client
         try {
             $reader = $this->reader();
             $text = $reader === null ? null : $reader->text($key, $options);
+            if ($text !== null && $args !== []) {
+                $text = Placeholders::fill($text, $args, $this->config->get('legacyPercentPlaceholders') === true);
+            }
         } catch (\Throwable $e) {
             $text = null;
         }
 
+        // The key text is returned as is: a placeholder in it is never filled.
         return $text ?? $key;
     }
 
