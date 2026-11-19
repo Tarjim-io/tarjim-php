@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tarjim;
 
 use Tarjim\Cycle\Refresher;
+use Tarjim\Lookup\Reader;
 use Tarjim\Store\Disk;
 use Tarjim\Store\Store;
 
@@ -12,6 +13,12 @@ final class Client
 {
     /** @var Config */
     private $config;
+
+    /** @var Reader|null */
+    private $reader;
+
+    /** @var bool */
+    private $readerBuilt = false;
 
     private function __construct(Config $config)
     {
@@ -99,12 +106,21 @@ final class Client
     }
 
     /**
+     * Placeholders are not filled yet.
+     *
      * @param array<string, mixed> $args
      * @param array<string, mixed> $options
      */
     public function t(string $key, array $args = [], array $options = []): string
     {
-        return $key;
+        try {
+            $reader = $this->reader();
+            $text = $reader === null ? null : $reader->text($key, $options);
+        } catch (\Throwable $e) {
+            $text = null;
+        }
+
+        return $text ?? $key;
     }
 
     /**
@@ -119,13 +135,25 @@ final class Client
     /** @param array<string, mixed> $options */
     public function image(string $key, array $options = []): ?Image
     {
-        throw new \LogicException('not implemented');
+        try {
+            $reader = $this->reader();
+
+            return $reader === null ? null : $reader->image($key, $options);
+        } catch (\Throwable $e) {
+            return null;
+        }
     }
 
     /** @param array<string, mixed> $options */
     public function has(string $key, array $options = []): bool
     {
-        throw new \LogicException('not implemented');
+        try {
+            $reader = $this->reader();
+
+            return $reader !== null && $reader->text($key, $options) !== null;
+        } catch (\Throwable $e) {
+            return false;
+        }
     }
 
     /**
@@ -134,7 +162,13 @@ final class Client
      */
     public function locales(array $options = []): array
     {
-        throw new \LogicException('not implemented');
+        try {
+            $reader = $this->reader();
+
+            return $reader === null ? [] : $reader->locales($options);
+        } catch (\Throwable $e) {
+            return [];
+        }
     }
 
     public function exports(): Export\Exports
@@ -152,6 +186,18 @@ final class Client
     private static function refuse(array $problems): void
     {
         throw new \InvalidArgumentException('Invalid Tarjim config: ' . implode('; ', $problems));
+    }
+
+    private function reader(): ?Reader
+    {
+        if (!$this->readerBuilt) {
+            $this->readerBuilt = true;
+            $this->reader = Reader::create($this->config, function (string $level, string $message): void {
+                $this->log($level, $message);
+            });
+        }
+
+        return $this->reader;
     }
 
     /** A logger that is missing, not callable or throws must never break the page. */
