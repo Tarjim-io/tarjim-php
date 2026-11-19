@@ -10,8 +10,16 @@ use Tarjim\Tests\Support\ReleaseBuilder;
 
 final class PlaceholderTest extends LookupCase
 {
+    /** @var bool */
+    private $installed = false;
+
+    /** The release is installed once per test; each call builds a client with its own options. */
     private function make(array $overrides = []): Client
     {
+        if ($this->installed) {
+            return $this->client($overrides + ['locale' => 'en']);
+        }
+        $this->installed = true;
         $release = (new ReleaseBuilder('7'))->flat('ns1', 'namespace', 'default', 'en', [
             'greet' => 'Hello {name}, you have {count} messages',
             'twice' => '{name} and {name}',
