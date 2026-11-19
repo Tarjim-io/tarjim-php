@@ -23,6 +23,7 @@ final class Refresher
     /** A wait further ahead than this is a corrupt or hostile state file, not a Retry-After. */
     private const LONGEST_WAIT = 86400;
     private const BUSY_STEP = 1;
+    private const UNWRITTEN = 'the store state could not be written';
 
     /** @var Config */
     private $config;
@@ -97,8 +98,9 @@ final class Refresher
         if ($state->lastCheckAt !== null && $state->lastCheckAt <= $now) {
             $due = max($due, $state->lastCheckAt + self::FLOOR);
         }
-        if ($state->notBefore !== null && $state->notBefore - $now <= self::LONGEST_WAIT) {
-            $due = max($due, $state->notBefore);
+        // Clamped, not ignored: a small step back of the clock must not release a wait at the cap.
+        if ($state->notBefore !== null) {
+            $due = max($due, min($state->notBefore, $now + self::LONGEST_WAIT));
         }
         if ($due > $now) {
             $wait = $due - $now;
@@ -106,10 +108,15 @@ final class Refresher
             return [$this->result(RefreshResult::NOT_DUE, 'the next check is not due yet', $wait, $store), $wait];
         }
 
+        // Recorded before Tarjim is called, so a refresh killed half way still counts against the floor.
+        $state->lastCheckAt = $now;
+        if (!$store->writeState($state)) {
+            return [$this->result(RefreshResult::FAILED, self::UNWRITTEN, null, $store), null];
+        }
+
         $delivery = new DeliveryClient($this->config->get('transport'), (string) $this->config->get('deliveryUrl'), (string) $this->config->get('key'));
         $etag = $held !== null && $state->etagFor === $held->releaseId . '-' . $held->checksum ? $state->etag : null;
         $outcome = $delivery->fetchMeta($held === null ? null : $held->releaseId, $etag);
-        $state->lastCheckAt = $now;
 
         switch ($outcome->kind) {
             case Outcome::NOT_MODIFIED:
@@ -121,11 +128,12 @@ final class Refresher
             case Outcome::UNRELEASED:
                 $state->lastSuccessAt = $now;
                 $state->notBefore = null;
-                $store->writeState($state);
+                if (!$store->writeState($state)) {
+                    return [$this->result(RefreshResult::FAILED, self::UNWRITTEN, null, $store), null];
+                }
 
                 return [$this->result(RefreshResult::UNRELEASED, 'the stage has no release yet', null, $store), self::FLOOR];
             case Outcome::CONFIGURATION:
-                $store->writeState($state);
                 $why = 'Tarjim refused the delivery URL or key (HTTP ' . (int) $outcome->status . ($outcome->code !== null ? ', ' . $outcome->code : '') . ')';
 
                 return [$this->result(RefreshResult::MISCONFIGURED, $why, null, $store), null];
@@ -142,6 +150,12 @@ final class Refresher
 
     private function received(Store $store, DeliveryClient $delivery, State $state, int $now, ?HeldCopy $held, Meta $meta): RefreshResult
     {
+        // A copy written before the binding was recorded has none to compare, and adopts the meta's.
+        if ($held !== null
+            && (($held->distribution !== null && $held->distribution !== $meta->distribution)
+                || ($held->stage !== null && $held->stage !== $meta->stage))) {
+            return $this->result(RefreshResult::MISCONFIGURED, 'the store holds another distribution or stage than the delivery URL names', null, $store);
+        }
         if ($held !== null && $held->releaseId === $meta->releaseId && $held->checksum === $meta->checksum) {
             $state->etag = $meta->etag;
             $state->etagFor = $meta->releaseId . '-' . $meta->checksum;
@@ -150,13 +164,6 @@ final class Refresher
         }
         if ($meta->schemaVersion !== 1) {
             return $this->failed($store, $state, $now, null, 'Tarjim serves a format this client does not know');
-        }
-        if ($held !== null
-            && (($meta->distribution !== null && $meta->distribution !== $held->distribution)
-                || ($meta->stage !== null && $meta->stage !== $held->stage))) {
-            $store->writeState($state);
-
-            return $this->result(RefreshResult::MISCONFIGURED, 'the store holds another distribution or stage than the delivery URL names', null, $store);
         }
 
         $manifest = $delivery->fetchManifest($meta);
@@ -233,7 +240,9 @@ final class Refresher
         $state->notBefore = null;
         $state->etag = $meta->etag;
         $state->etagFor = $meta->releaseId . '-' . $meta->checksum;
-        $store->writeState($state);
+        if (!$store->writeState($state)) {
+            return $this->result(RefreshResult::FAILED, self::UNWRITTEN, null, $store);
+        }
         $store->prune($now, $installed);
 
         return $this->result(RefreshResult::UPDATED, 'release ' . $meta->releaseId . ' installed', null, $store);
@@ -243,7 +252,9 @@ final class Refresher
     {
         $state->lastSuccessAt = $now;
         $state->notBefore = null;
-        $store->writeState($state);
+        if (!$store->writeState($state)) {
+            return $this->result(RefreshResult::FAILED, self::UNWRITTEN, null, $store);
+        }
         $store->prune($now, $held);
 
         return $this->result(RefreshResult::UNCHANGED, 'release ' . $held->releaseId . ' is current', null, $store);
@@ -253,9 +264,10 @@ final class Refresher
     {
         $wait = max(self::FLOOR, $retryAfter ?? 0);
         $state->notBefore = $now + $wait;
-        $store->writeState($state);
+        // Without the record the wait is not kept, so none is promised.
+        $kept = $store->writeState($state);
 
-        return $this->result(RefreshResult::FAILED, $message, $wait, $store);
+        return $this->result(RefreshResult::FAILED, $message, $kept ? $wait : null, $store);
     }
 
     private static function describe(Outcome $outcome): string

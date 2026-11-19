@@ -88,7 +88,10 @@ final class Client
             $clock = $this->config->get('now');
             $now = $clock === null ? time() : (int) $clock();
             $staleAfter = $this->config->get('staleAfter');
-            $status->stale = $state->lastSuccessAt === null || $now - $state->lastSuccessAt > (is_int($staleAfter) ? $staleAfter : 86400);
+            // A success dated after now means the clock moved back; it proves nothing about freshness.
+            $status->stale = $state->lastSuccessAt === null
+                || $state->lastSuccessAt > $now
+                || $now - $state->lastSuccessAt > (is_int($staleAfter) ? $staleAfter : 86400);
         } catch (\Throwable $e) {
         }
 
