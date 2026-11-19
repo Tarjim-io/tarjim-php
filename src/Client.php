@@ -58,7 +58,9 @@ final class Client
     public function refresh(array $options = []): RefreshResult
     {
         try {
-            $result = (new Refresher($this->config))->run($options);
+            $result = (new Refresher($this->config, function (string $level, string $message): void {
+                $this->log($level, $message);
+            }))->run($options);
         } catch (\Throwable $e) {
             $result = new RefreshResult(RefreshResult::FAILED, 'the refresh failed unexpectedly');
         }

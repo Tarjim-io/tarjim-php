@@ -122,10 +122,12 @@ final class Store
 
     /**
      * The installed release's bundles for reading: the index file's name and, per bundle id, its
-     * type, name and language => object hash. Lenient: a bundle or language that is not understood
-     * is dropped. Null when there is no installed release or its index is unusable.
+     * type, name, layout and language => object hash. Every bundle of the release is listed, flat
+     * or not, so a name resolves the same way here as when it was installed; only a flat one has
+     * languages. Lenient: a bundle or language that is not understood is dropped. Null when there
+     * is no installed release or its index is unusable.
      *
-     * @return array{name: string, bundles: array<string, array{type: string, name: string, languages: array<string, string>}>}|null
+     * @return array{name: string, bundles: array<string, array{type: string, name: string, layout: string|null, languages: array<string, string>}>}|null
      */
     public function currentIndex(): ?array
     {
@@ -146,15 +148,20 @@ final class Store
             if (!is_string($type) || !is_string($bundleName) || !is_array($files)) {
                 continue;
             }
+            $layout = $bundle['layout'] ?? null;
             $languages = [];
             foreach ($files as $language => $hash) {
                 if (is_string($hash) && self::isHash($hash)) {
                     $languages[(string) $language] = $hash;
                 }
             }
-            if ($languages !== []) {
-                $bundles[(string) $id] = ['type' => $type, 'name' => $bundleName, 'languages' => $languages];
-            }
+            $bundles[(string) $id] = [
+                'type' => $type,
+                'name' => $bundleName,
+                // A layout that is not a string is not flat either.
+                'layout' => $layout === null || is_string($layout) ? $layout : '',
+                'languages' => $languages,
+            ];
         }
 
         return ['name' => $name, 'bundles' => $bundles];

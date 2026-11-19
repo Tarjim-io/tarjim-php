@@ -36,7 +36,7 @@ final class Reader
     /** @var string|null the release index file being served */
     private $loaded;
 
-    /** @var array<string, array{type: string, name: string, languages: array<string, string>}> */
+    /** @var array<string, array{type: string, name: string, layout: string|null, languages: array<string, string>}> */
     private $bundles = [];
 
     /** @var int|null */
@@ -86,7 +86,7 @@ final class Reader
     public function locales(array $options): array
     {
         $this->reload();
-        $id = BundleChoice::find($this->bundles, $this->choice($options, 'bundle', 'default'));
+        $id = $this->chosen($options);
 
         return $id === null ? [] : array_map('strval', array_keys($this->bundles[$id]['languages']));
     }
@@ -95,7 +95,7 @@ final class Reader
     private function catalog(array $options): ?Catalog
     {
         $this->reload();
-        $id = BundleChoice::find($this->bundles, $this->choice($options, 'bundle', 'default'));
+        $id = $this->chosen($options);
         if ($id === null) {
             return null;
         }
@@ -111,6 +111,18 @@ final class Reader
         }
 
         return $this->catalogs[$hash];
+    }
+
+    /**
+     * The chosen bundle's id; null when there is none or it is not flat, never another bundle of the same name.
+     *
+     * @param array<string, mixed> $options
+     */
+    private function chosen(array $options): ?string
+    {
+        $id = BundleChoice::find($this->bundles, $this->choice($options, 'bundle', 'default'));
+
+        return $id !== null && BundleChoice::isFlat($this->bundles[$id]['layout']) ? $id : null;
     }
 
     private function lower(): bool
