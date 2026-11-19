@@ -42,8 +42,11 @@ final class Reader
     /** @var int|null */
     private $checkedAt;
 
-    /** @var array<string, Catalog|null> by object hash; null for a file that could not be read */
+    /** @var array<string, Catalog|null> by object hash; null for a file that decoded to nothing usable */
     private $catalogs = [];
+
+    /** @var array<string, true> object hashes whose read failed since the last pointer check */
+    private $unreadable = [];
 
     /** @param callable(string, string): void $log */
     private function __construct(Store $store, Config $config, callable $log)
@@ -106,8 +109,18 @@ final class Reader
         }
         $hash = $languages[$tag];
         if (!array_key_exists($hash, $this->catalogs)) {
+            if (isset($this->unreadable[$hash])) {
+                return null;
+            }
             $bytes = $this->store->readObject($hash);
-            $this->catalogs[$hash] = $bytes === null ? null : Catalog::decode($bytes, $this->lower());
+            if ($bytes === null) {
+                // Not cached as a verdict: a disk that failed for a moment must not blank the language
+                // for the rest of the release. The next pointer check tries it again.
+                $this->unreadable[$hash] = true;
+
+                return null;
+            }
+            $this->catalogs[$hash] = Catalog::decode($bytes, $this->lower());
         }
 
         return $this->catalogs[$hash];
@@ -149,6 +162,7 @@ final class Reader
             return;
         }
         $this->checkedAt = $now;
+        $this->unreadable = [];
         $name = $this->store->pointerName();
         if ($name === null || $name === $this->loaded) {
             return;

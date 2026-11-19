@@ -11,13 +11,13 @@ final class Catalog
 {
     private const IMAGE_ATTRIBUTES = ['alt', 'title', 'width', 'height', 'loading'];
 
-    /** @var array<string, \stdClass> leaf by key name, folded when the client folds */
+    /** @var array<string, array<mixed>> leaf by key name, folded when the client folds */
     private $leaves;
 
     /** @var bool */
     private $lower;
 
-    /** @param array<string, \stdClass> $leaves */
+    /** @param array<string, array<mixed>> $leaves */
     private function __construct(array $leaves, bool $lower)
     {
         $this->leaves = $leaves;
@@ -33,14 +33,16 @@ final class Catalog
     /** Null for anything but a readable version-1 file with an object of keys. */
     public static function decode(string $bytes, bool $lower): ?self
     {
-        // Objects, not arrays: only that tells `{}` from `[]`, and a name like "404" stays a string.
-        $root = json_decode($bytes, false);
-        if (!$root instanceof \stdClass || ($root->schemaVersion ?? null) !== 1 || !($root->keys ?? null) instanceof \stdClass) {
+        // Arrays, not objects: PHP cannot make an object property of a name that starts with NUL, and
+        // one such key must not blank the language. Names are cast back to strings because "404"
+        // becomes an integer key.
+        $root = json_decode($bytes, true);
+        if (!is_array($root) || ($root['schemaVersion'] ?? null) !== 1 || !is_array($root['keys'] ?? null)) {
             return null;
         }
         $leaves = [];
-        foreach (get_object_vars($root->keys) as $name => $leaf) {
-            if (!$leaf instanceof \stdClass) {
+        foreach ($root['keys'] as $name => $leaf) {
+            if (!is_array($leaf)) {
                 continue;
             }
             $name = (string) $name;
@@ -57,7 +59,7 @@ final class Catalog
     public function text(string $key): ?string
     {
         $leaf = $this->leaf($key);
-        $value = $leaf->value ?? null;
+        $value = $leaf === null ? null : ($leaf['value'] ?? null);
 
         return is_string($value) && $value !== '' ? $value : null;
     }
@@ -65,17 +67,17 @@ final class Catalog
     public function image(string $key): ?Image
     {
         $leaf = $this->leaf($key);
-        if ($leaf === null || ($leaf->type ?? null) !== 'image') {
+        if ($leaf === null || ($leaf['type'] ?? null) !== 'image') {
             return null;
         }
-        $url = $leaf->value ?? null;
+        $url = $leaf['value'] ?? null;
         if (!is_string($url) || !self::isHttpsUrl($url)) {
             return null;
         }
         $attributes = [];
-        $raw = $leaf->attributes ?? null;
-        if ($raw instanceof \stdClass) {
-            foreach (get_object_vars($raw) as $name => $value) {
+        $raw = $leaf['attributes'] ?? null;
+        if (is_array($raw)) {
+            foreach ($raw as $name => $value) {
                 if (is_string($value) && in_array((string) $name, self::IMAGE_ATTRIBUTES, true)) {
                     $attributes[(string) $name] = $value;
                 }
@@ -85,7 +87,8 @@ final class Catalog
         return new Image($url, $attributes);
     }
 
-    private function leaf(string $key): ?\stdClass
+    /** @return array<mixed>|null */
+    private function leaf(string $key): ?array
     {
         return $this->leaves[$this->lower ? self::fold($key) : $key] ?? null;
     }

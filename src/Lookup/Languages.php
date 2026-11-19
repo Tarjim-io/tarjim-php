@@ -9,7 +9,8 @@ final class Languages
     /** `fr_CA`, `FR-ca` and `fr-CA` are one tag. */
     public static function normalise(string $tag): string
     {
-        return strtolower(str_replace('_', '-', $tag));
+        // Not strtolower(): before PHP 8.2 it follows the process locale, and setlocale() in the app would change matching.
+        return strtr(str_replace('_', '-', $tag), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz');
     }
 
     /**
