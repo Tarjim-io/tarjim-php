@@ -5,15 +5,16 @@ declare(strict_types=1);
 namespace Tarjim\Store;
 
 /**
- * The local copy: objects/<sha256>.json, releases/<id>-<checksum8>.json, current.json, state.json
- * and lock. Every file name is built from a 64-hex hash, digits and 8 hex characters, never from
+ * The local copy: objects/<sha256>.json, releases/<id>-<checksum8>.json, current.json, state.json,
+ * dropped.json and lock. Every file name is built from a 64-hex hash, digits and 8 hex characters, never from
  * anything a response names (a bundle, a language).
  */
 final class Store
 {
     private const OBJECT_NAME = '/^[0-9a-f]{64}\.json\z/';
     private const INDEX_NAME = '/^[0-9]+-[0-9a-f]{8}\.json\z/';
-    private const TEMP_NAME = '/^\..+\.tmp\z/';
+    // Only what LocalDisk::put names its temp files: the folder may hold other programs' files.
+    private const TEMP_NAME = '/^\.([0-9a-f]{64}\.json|[0-9]+-[0-9a-f]{8}\.json|current\.json|state\.json|dropped\.json)\.[0-9a-f]{8}\.tmp\z/';
     private const KEEP_SECONDS = 86400;
 
     /** @var Disk */
@@ -141,8 +142,9 @@ final class Store
     }
 
     /**
-     * Deletes what neither kept release names and is older than a day: a process that started on
-     * the previous release may still be reading it.
+     * Deletes what neither kept release names, a day after it stopped being named: a process that
+     * started on the previous release may still be reading it. The age counts from the prune that
+     * first saw the file unnamed (dropped.json), not from its mtime, which is when it was written.
      */
     public function prune(int $now, HeldCopy $held): void
     {
@@ -157,26 +159,55 @@ final class Store
             }
         }
 
-        $this->sweep($this->dir . '/objects', self::OBJECT_NAME, $keepObjects, $now);
-        $this->sweep($this->dir . '/releases', self::INDEX_NAME, $keepIndexes, $now);
-        $this->sweep($this->dir, null, [], $now);
+        $before = $this->readDropped();
+        $dropped = [];
+        $this->sweep($this->dir . '/objects', 'objects/', self::OBJECT_NAME, $keepObjects, $now, $before, $dropped);
+        $this->sweep($this->dir . '/releases', 'releases/', self::INDEX_NAME, $keepIndexes, $now, $before, $dropped);
+        $this->sweep($this->dir, '', null, [], $now, $before, $dropped);
+        if ($dropped !== $before) {
+            $this->putJson($this->dir . '/dropped.json', $dropped);
+        }
     }
 
     /**
      * @param array<int|string, true> $keep
+     * @param array<string, int> $before when each file was first seen unnamed
+     * @param array<string, int> $dropped the same, for the files still there; filled here
      */
-    private function sweep(string $dir, ?string $namePattern, array $keep, int $now): void
+    private function sweep(string $dir, string $prefix, ?string $namePattern, array $keep, int $now, array $before, array &$dropped): void
     {
         foreach ($this->disk->files($dir) as $name) {
-            $ours = preg_match(self::TEMP_NAME, $name) === 1 || ($namePattern !== null && preg_match($namePattern, $name) === 1);
-            if (!$ours || isset($keep[$name])) {
+            if (preg_match(self::TEMP_NAME, $name) === 1) {
+                $mtime = $this->disk->mtime($dir . '/' . $name);
+                if ($mtime !== null && $now - $mtime > self::KEEP_SECONDS) {
+                    $this->disk->delete($dir . '/' . $name);
+                }
+
                 continue;
             }
-            $mtime = $this->disk->mtime($dir . '/' . $name);
-            if ($mtime !== null && $now - $mtime > self::KEEP_SECONDS) {
-                $this->disk->delete($dir . '/' . $name);
+            if ($namePattern === null || preg_match($namePattern, $name) !== 1 || isset($keep[$name])) {
+                continue;
+            }
+            // A recorded time ahead of now means the clock moved back: count from now instead.
+            $since = isset($before[$prefix . $name]) ? min($before[$prefix . $name], $now) : $now;
+            if ($now - $since > self::KEEP_SECONDS && $this->disk->delete($dir . '/' . $name)) {
+                continue;
+            }
+            $dropped[$prefix . $name] = $since;
+        }
+    }
+
+    /** @return array<string, int> */
+    private function readDropped(): array
+    {
+        $dropped = [];
+        foreach ($this->readJson($this->dir . '/dropped.json') ?? [] as $name => $at) {
+            if (is_string($name) && is_int($at)) {
+                $dropped[$name] = $at;
             }
         }
+
+        return $dropped;
     }
 
     /** @return list<string>|null the hashes a release index names; null when it is unusable */
