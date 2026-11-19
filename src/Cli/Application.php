@@ -44,6 +44,9 @@ final class Application
                 return self::MISCONFIGURED;
             }
 
+            // Problems are reported through exit codes: a thrown refusal would be a different one.
+            $config['strict'] = false;
+
             return $command === 'refresh'
                 ? $this->refresh($config, $options, $out, $err)
                 : $this->status($config, $out, $err);
@@ -122,6 +125,12 @@ final class Application
      */
     private function refresh(array $config, array $options, $out, $err): int
     {
+        // The same answer as a config file that cannot be loaded: there is no store to look in.
+        if ($options['requireCopy'] && Config::fromArray($config)->get('dir') === null) {
+            fwrite($err, "tarjim-php: dir must be set to an absolute path\n");
+
+            return self::MISCONFIGURED;
+        }
         $client = Client::create($config);
         $result = $client->refresh(['wait' => $options['wait']]);
         $held = $client->status()->releaseId;
