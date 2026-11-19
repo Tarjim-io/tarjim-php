@@ -245,6 +245,10 @@ final class DeliveryClient
         }
         $distribution = $m['distribution'] ?? null;
         $stage = $m['stage'] ?? null;
+        // The binding a store is checked against: a meta without it cannot be trusted to install.
+        if (!is_string($distribution) || $distribution === '' || ($stage !== 'dev' && $stage !== 'prod')) {
+            return new Outcome(Outcome::UNREADABLE);
+        }
         $outcome = new Outcome(Outcome::RECEIVED);
         $outcome->meta = new Meta(
             $checksum,
@@ -254,8 +258,8 @@ final class DeliveryClient
             $authenticated,
             is_string($signedQuery) ? $signedQuery : null,
             $releaseId,
-            is_string($distribution) ? $distribution : null,
-            is_string($stage) ? $stage : null,
+            $distribution,
+            $stage,
             self::etag($response->header('etag'))
         );
 
