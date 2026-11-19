@@ -46,11 +46,11 @@ final class Manifest
         }
 
         $files = [];
-        foreach ($slices as $id => $locales) {
+        foreach (get_object_vars($slices) as $id => $locales) {
             if (!$locales instanceof \stdClass) {
                 continue;
             }
-            foreach ($locales as $locale => $kinds) {
+            foreach (get_object_vars($locales) as $locale => $kinds) {
                 $ref = $kinds instanceof \stdClass ? self::jsonFile($kinds->json ?? null) : null;
                 if ($ref !== null) {
                     $files[$id][$locale] = $ref;
@@ -59,7 +59,7 @@ final class Manifest
         }
 
         $kept = [];
-        foreach ($bundles as $id => $bundle) {
+        foreach (get_object_vars($bundles) as $id => $bundle) {
             if (!$bundle instanceof \stdClass || !isset($files[$id])) {
                 continue;
             }
