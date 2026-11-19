@@ -43,7 +43,9 @@ final class Exports
     /**
      * Asks the API for an export of a bundle, waits for it, and installs it into $intoDir.
      * Never throws. $options: timeout (seconds, default 300), poll (seconds, default 2) and
-     * maxBytes (default 64 MiB), which bounds the download and the unpacked size alike.
+     * maxBytes (default 64 MiB), which bounds the download and the unpacked size alike, and
+     * adoptExisting (default false), which lets the pull take over files that are already in the
+     * target and that an earlier pull did not write.
      *
      * @param array<string, mixed> $options
      */
@@ -53,8 +55,9 @@ final class Exports
         try {
             $installed = $this->run($projectId, $bundleId, $intoDir, $options);
             $result = new ExportResult(ExportResult::UPDATED);
-            [$result->written, $result->removed] = $installed;
-            $result->message = 'wrote ' . count($result->written) . ' file(s), removed ' . count($result->removed);
+            [$result->written, $result->removed, $notes] = $installed;
+            $result->message = 'wrote ' . count($result->written) . ' file(s), removed ' . count($result->removed)
+                . ($notes === [] ? '' : '; ' . implode('; ', $notes));
         } catch (Refusal $e) {
             $result = new ExportResult($e->status);
             $result->message = $e->getMessage();
@@ -72,13 +75,15 @@ final class Exports
 
     /**
      * @param array<string, mixed> $options
-     * @return array{list<string>, list<string>}
+     * @return array{list<string>, list<string>, list<string>}
      * @throws Refusal
      */
     private function run(int $projectId, int $bundleId, string $intoDir, array $options): array
     {
         [$apiUrl, $headers] = $this->setup($projectId, $bundleId, $intoDir);
         $target = rtrim($intoDir, '/');
+        Installer::sweep($target, $this->now());
+        $adopt = ($options['adoptExisting'] ?? false) === true;
         $timeout = self::positive($options['timeout'] ?? null, self::DEFAULT_TIMEOUT);
         $poll = self::positive($options['poll'] ?? null, self::DEFAULT_POLL);
         $maxBytes = self::positive($options['maxBytes'] ?? null, self::DEFAULT_MAX_BYTES);
@@ -122,7 +127,7 @@ final class Exports
 
                 return $installer->install($target, $paths, static function (string $path, string $to) use ($archive): void {
                     $archive->copy($path, $to);
-                }, $export['id']);
+                }, $export['id'], $adopt);
             } finally {
                 $archive->close();
             }
@@ -138,7 +143,7 @@ final class Exports
             if (@file_put_contents($to, $bytes) !== strlen($bytes)) {
                 throw new Refusal('the export could not be written (is the disk full?)');
             }
-        }, $export['id']);
+        }, $export['id'], $adopt);
     }
 
     /**
