@@ -223,8 +223,8 @@ final class HtmlTest extends LookupCase
     {
         $out = $this->html('<img alt={x} src="https://cdn.example.test/a.png">', ['x' => 'y src=https://evil.example/track.gif']);
 
-        self::assertStringContainsString('src="https://cdn.example.test/a.png"', $out);
-        self::assertStringNotContainsString('evil.example/track.gif"', $out);
+        self::assertSame(1, preg_match_all('/\ssrc="/', $out));
+        self::assertStringContainsString(' src="https://cdn.example.test/a.png"', $out);
     }
 
     /** @return iterable<string, array{string, string}> */
