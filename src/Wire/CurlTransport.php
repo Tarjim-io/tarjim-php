@@ -61,13 +61,13 @@ final class CurlTransport implements Transport
         $bodyStarted = false;
         $interim = false;
         $limit = $request->limit;
-        $stallTimeout = $this->stallTimeout;
+        // A create call is held open by the server while it works, so it may ask for longer silence.
+        $stallTimeout = $request->stallTimeout ?? $this->stallTimeout;
         $seen = 0;
         $lastProgress = microtime(true);
 
         $options = [
             CURLOPT_URL => $request->url,
-            CURLOPT_HTTPGET => true,
             CURLOPT_HTTPHEADER => $lines,
             CURLOPT_FOLLOWLOCATION => false,
             CURLOPT_PROTOCOLS => CURLPROTO_HTTP | CURLPROTO_HTTPS,
@@ -78,7 +78,7 @@ final class CurlTransport implements Transport
             CURLOPT_CONNECTTIMEOUT => $this->connectTimeout,
             // No total timeout: a large body on a slow but steady link is fine, only silence is not.
             CURLOPT_LOW_SPEED_LIMIT => 1,
-            CURLOPT_LOW_SPEED_TIME => $this->stallTimeout,
+            CURLOPT_LOW_SPEED_TIME => $stallTimeout,
             CURLOPT_NOSIGNAL => true,
             // libcurl's own low-speed check averages over a window of several seconds, so a few bytes
             // sent just before the server goes quiet postpone it well past the timeout. This watchdog
@@ -127,6 +127,12 @@ final class CurlTransport implements Transport
                 return strlen($chunk);
             },
         ];
+        if ($request->method === 'POST') {
+            $options[CURLOPT_POST] = true;
+            $options[CURLOPT_POSTFIELDS] = (string) $request->body;
+        } else {
+            $options[CURLOPT_HTTPGET] = true;
+        }
         curl_setopt_array($handle, $options);
         if ($caBundle !== null) {
             curl_setopt($handle, CURLOPT_CAINFO, $caBundle);
