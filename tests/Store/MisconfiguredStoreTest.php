@@ -77,4 +77,17 @@ final class MisconfiguredStoreTest extends StoreCase
         self::assertSame($before['current.json'], $this->storeFiles()['current.json']);
         self::assertSame('7', $this->client()->status()->releaseId);
     }
+
+    public function testAMetaNamingAnotherDistributionNeverInstallsOverTheCopy(): void
+    {
+        $this->serve($this->release());
+        $this->refresh();
+        $this->laterBy(61);
+        $this->serve($this->release('50', ['hello' => 'OTHER']), ['distribution' => null]);
+        $result = $this->refresh();
+
+        self::assertNotSame(RefreshResult::UPDATED, $result->status);
+        self::assertSame('7', $this->client()->status()->releaseId);
+        self::assertSame('dst_test', $this->client()->status()->distribution);
+    }
 }

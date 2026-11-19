@@ -232,6 +232,10 @@ final class MetaTest extends WireCase
         yield 'release id fractional' => [['releaseId' => 7.5]];
         yield 'release id empty' => [['releaseId' => '']];
         yield 'release id with a leading zero' => [['releaseId' => '007']];
+        yield 'no distribution' => [['distribution' => null]];
+        yield 'no stage' => [['stage' => null]];
+        yield 'distribution not a string' => [['distribution' => 5]];
+        yield 'an unknown stage' => [['stage' => 'staging']];
         yield 'neither mode' => [['authenticated' => false]];
         yield 'cdn with an empty signature' => [['authenticated' => false, 'signedQuery' => '']];
     }

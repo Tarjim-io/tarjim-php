@@ -91,4 +91,34 @@ final class PruneTest extends StoreCase
 
         self::assertFileDoesNotExist($stray);
     }
+
+    public function testARecentlyDroppedReleaseIsKeptForADayAfterItWasDropped(): void
+    {
+        $seven = $this->release('7', ['a' => 'seven'], ['a' => 'sept']);
+        $this->install($seven, 0);
+        $this->install($this->release('8', ['a' => 'eight'], ['a' => 'huit']), 2 * 86400);
+        $this->install($this->release('9', ['a' => 'nine'], ['a' => 'neuf']), 61);
+
+        foreach (self::names($seven) as $name) {
+            self::assertContains($name, $this->objects(), 'release 7 stopped being named a minute ago');
+        }
+        self::assertCount(1, glob($this->dir . '/releases/7-*.json') ?: []);
+    }
+
+    public function testLeavesOtherProgramsTempFilesAlone(): void
+    {
+        $this->install($this->release('7'), 0);
+        $foreign = [$this->dir . '/.upload-cache.tmp', $this->dir . '/objects/.notes.tmp'];
+        foreach ($foreign as $path) {
+            file_put_contents($path, 'not ours');
+            touch($path, $this->clock->now);
+        }
+        $this->install($this->release('8', ['hello' => 'Hi']), 90000);
+        $this->laterBy(90000);
+        $this->refresh();
+
+        foreach ($foreign as $path) {
+            self::assertFileExists($path);
+        }
+    }
 }

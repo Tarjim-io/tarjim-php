@@ -243,4 +243,18 @@ final class RefreshExitCodesTest extends CliCase
         self::assertSame(2, $this->cli(['refresh', '--config=' . $this->root . '/throws.php']));
         self::assertStringNotContainsString(self::KEY, $this->out . $this->err);
     }
+
+    public function testARelativeDirWithRequireCopyIsTwo(): void
+    {
+        self::assertSame(2, $this->cli(['refresh', '--config={config}', '--require-copy'], ['dir' => 'storage/tarjim']));
+    }
+
+    public function testStrictModeDoesNotChangeTheExitCodes(): void
+    {
+        self::assertSame(2, $this->cli(['refresh', '--config={config}'], ['strict' => true, 'dir' => 'storage/tarjim']));
+        self::assertSame(2, $this->cli(['refresh', '--config={config}'], ['strict' => true, 'key' => '']));
+        $this->holdSeven();
+        $this->fake->on(self::DELIVERY, new Response(503));
+        self::assertSame(0, $this->cli(['refresh', '--config={config}', '--require-copy'], ['strict' => true, 'keyCase' => 'upper']));
+    }
 }

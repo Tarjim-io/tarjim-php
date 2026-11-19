@@ -16,6 +16,9 @@ final class FaultyDisk implements Disk
     /** @var string|null */
     public $failPutsMatching;
 
+    /** @var bool fail by throwing, as a process killed mid-write never returns */
+    public $throw = false;
+
     /** @var list<string> */
     public $puts = [];
 
@@ -33,6 +36,10 @@ final class FaultyDisk implements Disk
     {
         $this->puts[] = $path;
         if ($this->failPutsMatching !== null && preg_match($this->failPutsMatching, $path) === 1) {
+            if ($this->throw) {
+                throw new \RuntimeException('killed while writing');
+            }
+
             return false;
         }
 

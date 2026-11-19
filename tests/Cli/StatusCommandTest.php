@@ -60,4 +60,12 @@ final class StatusCommandTest extends CliCase
 
         self::assertStringNotContainsString(self::KEY, $this->out . $this->err);
     }
+
+    public function testStrictModeWithoutAKeyStillReportsTheCopy(): void
+    {
+        $this->serve($this->release());
+        $this->cli(['refresh', '--config={config}']);
+
+        self::assertSame(0, $this->cli(['status', '--config={config}'], ['strict' => true, 'key' => null, 'deliveryUrl' => null]));
+    }
 }

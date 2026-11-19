@@ -84,4 +84,14 @@ final class StatusTest extends StoreCase
 
         self::assertSame([], $this->logged);
     }
+
+    public function testASuccessDatedInTheFutureIsStale(): void
+    {
+        $this->clock->advance(365 * 86400);
+        $this->serve($this->release());
+        $this->refresh();
+        $this->clock->advance(-365 * 86400 + 30 * 86400);
+
+        self::assertTrue($this->client()->status()->stale);
+    }
 }

@@ -198,4 +198,40 @@ final class CadenceTest extends StoreCase
         self::assertSame(RefreshResult::FAILED, $result->status);
         self::assertCount(1, $this->takeRequests());
     }
+
+    public function testACheckInterruptedMidInstallStillCountsAgainstTheFloor(): void
+    {
+        $disk = new \Tarjim\Tests\Support\FaultyDisk();
+        $disk->failPutsMatching = '#/(objects|releases)/|/current\.json$#';
+        $disk->throw = true;
+        $this->serve($this->release());
+        $this->refresh([], ['disk' => $disk]);
+        $this->takeRequests();
+        $this->laterBy(10);
+
+        self::assertSame(RefreshResult::NOT_DUE, $this->refresh()->status);
+        self::assertSame([], $this->takeRequests());
+    }
+
+    public function testACheckThatCannotBeRecordedCallsNobody(): void
+    {
+        $disk = new \Tarjim\Tests\Support\FaultyDisk();
+        $disk->failPutsMatching = '#/state\.json$#';
+        $this->serve($this->release());
+        $result = $this->refresh([], ['disk' => $disk]);
+
+        self::assertSame(RefreshResult::FAILED, $result->status);
+        self::assertSame([], $this->takeRequests());
+    }
+
+    public function testAWaitAtTheCapSurvivesASmallClockStepBack(): void
+    {
+        $this->fake->on(self::DELIVERY, new Response(429, ['retry-after' => '86400']));
+        $this->refresh();
+        $this->takeRequests();
+        $this->clock->advance(-30);
+
+        self::assertSame(RefreshResult::NOT_DUE, $this->refresh()->status);
+        self::assertSame([], $this->takeRequests());
+    }
 }
