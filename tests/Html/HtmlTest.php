@@ -201,4 +201,69 @@ final class HtmlTest extends LookupCase
 
         self::assertSame('<b>Hi <i></b>', $client->t('k', ['name' => '<i>']));
     }
+
+    /** @return iterable<string, array{string, array<string, string>, string}> */
+    public function argumentsAfterALessThanSign(): iterable
+    {
+        yield 'a link' => ['Orders under <{n} ship free.', ['n' => 'a href=https://evil.example/phish'], 'Orders under &lt;a href=https://evil.example/phish ship free.'];
+        yield 'an image' => ['Orders under <{n} ship free.', ['n' => 'img src=https://evil.example/pixel.gif'], 'Orders under &lt;img src=https://evil.example/pixel.gif ship free.'];
+        yield 'a tag name' => ['<{t}>hi</{t}>', ['t' => 'a href=https://evil.example'], '&lt;a href=https://evil.example&gt;hi&lt;/a href=https://evil.example&gt;'];
+    }
+
+    /**
+     * @dataProvider argumentsAfterALessThanSign
+     * @param array<string, string> $args
+     */
+    public function testAnArgumentCannotBecomeATag(string $value, array $args, string $expected): void
+    {
+        self::assertSame($expected, $this->html($value, $args));
+    }
+
+    public function testAnArgumentInAnUnquotedAttributeCannotAddAnother(): void
+    {
+        $out = $this->html('<img alt={x} src="https://cdn.example.test/a.png">', ['x' => 'y src=https://evil.example/track.gif']);
+
+        self::assertStringContainsString('src="https://cdn.example.test/a.png"', $out);
+        self::assertStringNotContainsString('evil.example/track.gif"', $out);
+    }
+
+    /** @return iterable<string, array{string, string}> */
+    public function closingTagsWithAttributes(): iterable
+    {
+        yield 'a class' => ['<b>x</b class=y>z', '<b>x</b>z'];
+        yield 'an href' => ['<a href="https://ok.example">x</a href=https://evil>z', '<a href="https://ok.example">x</a>z'];
+        yield 'quoted with a greater-than' => ['<b>x</b onclick=1 title="a>b">z', '<b>x</b>z'];
+        yield 'self-closing' => ['<b>x</b/>y', '<b>x</b>y'];
+    }
+
+    /** @dataProvider closingTagsWithAttributes */
+    public function testAClosingTagWithAttributesIsTheSameOnEveryPhp(string $value, string $expected): void
+    {
+        self::assertSame($expected, $this->html($value));
+    }
+
+    /** @return iterable<string, array{string, string}> */
+    public function textThatOnlyLooksLikeMarkup(): iterable
+    {
+        yield 'an unknown tag name' => ['x<y>z', 'x&lt;y&gt;z'];
+        yield 'a key name' => ['press <Enter to go', 'press &lt;Enter to go'];
+        yield 'a placeholder in angle brackets' => ['Dear <name>,', 'Dear &lt;name&gt;,'];
+        yield 'an unclosed processing instruction' => ['Really <? no', 'Really &lt;? no'];
+        yield 'an unclosed doctype' => ['see <!DOCTYPE', 'see &lt;!DOCTYPE'];
+        yield 'an unclosed comment' => ['a <!-- not closed', 'a &lt;!-- not closed'];
+        yield 'a non-breaking space entity' => ['a&nbsp;b', 'a&nbsp;b'];
+    }
+
+    /** @dataProvider textThatOnlyLooksLikeMarkup */
+    public function testTextThatOnlyLooksLikeMarkupKeepsEveryCharacter(string $value, string $expected): void
+    {
+        self::assertSame($expected, $this->html($value));
+    }
+
+    public function testAHugeUnclosedCommentDoesNotEmptyTheOutput(): void
+    {
+        $out = $this->html('Keep this. <!-- ' . str_repeat('x', 1000000));
+
+        self::assertStringStartsWith('Keep this.', $out);
+    }
 }
