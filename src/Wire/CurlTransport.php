@@ -58,6 +58,8 @@ final class CurlTransport implements Transport
         $body = '';
         $size = 0;
         $tooLarge = false;
+        $bodyStarted = false;
+        $interim = false;
         $limit = $request->limit;
         $stallTimeout = $this->stallTimeout;
         $seen = 0;
@@ -91,12 +93,20 @@ final class CurlTransport implements Transport
 
                 return $now - $lastProgress >= $stallTimeout ? 1 : 0;
             },
-            CURLOPT_HEADERFUNCTION => static function ($ch, string $line) use (&$headers): int {
+            CURLOPT_HEADERFUNCTION => static function ($ch, string $line) use (&$headers, &$bodyStarted, &$interim): int {
                 $length = strlen($line);
+                // The final header block is over at its blank line (or at the first body byte): anything
+                // after that is a chunked trailer and must not overwrite the real headers.
+                if ($bodyStarted) {
+                    return $length;
+                }
                 $trimmed = trim($line);
-                if (stripos($trimmed, 'HTTP/') === 0) {
+                if ($trimmed === '') {
+                    $bodyStarted = !$interim;
+                } elseif (stripos($trimmed, 'HTTP/') === 0) {
                     // A new status line starts a new block (1xx, proxy CONNECT): earlier headers are stale.
                     $headers = [];
+                    $interim = preg_match('~^HTTP/[0-9.]+ 1[0-9]{2}(\s|\z)~i', $trimmed) === 1;
                 } elseif (($colon = strpos($trimmed, ':')) !== false && $colon > 0) {
                     $headers[strtolower(trim(substr($trimmed, 0, $colon)))] = trim(substr($trimmed, $colon + 1));
                 }
@@ -104,7 +114,8 @@ final class CurlTransport implements Transport
                 return $length;
             },
             // Counts decoded bytes: curl decodes before calling this, so a compression bomb trips the limit too.
-            CURLOPT_WRITEFUNCTION => static function ($ch, string $chunk) use (&$body, &$size, &$tooLarge, $limit): int {
+            CURLOPT_WRITEFUNCTION => static function ($ch, string $chunk) use (&$body, &$size, &$tooLarge, &$bodyStarted, $limit): int {
+                $bodyStarted = true;
                 $size += strlen($chunk);
                 if ($size > $limit) {
                     $tooLarge = true;
@@ -125,13 +136,14 @@ final class CurlTransport implements Transport
         $status = (int) curl_getinfo($handle, CURLINFO_RESPONSE_CODE);
         unset($handle);
 
+        // Decided before the size: a redirect is never an answer, however large its body.
+        if ($status >= 300 && $status < 400 && $status !== 304) {
+            return Response::none();
+        }
         if ($tooLarge) {
             return new Response($status, $headers, null, true);
         }
         if ($ok === false || $status === 0) {
-            return Response::none();
-        }
-        if ($status >= 300 && $status < 400 && $status !== 304) {
             return Response::none();
         }
 
