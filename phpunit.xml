@@ -15,6 +15,9 @@
         <testsuite name="store">
             <directory>tests/Store</directory>
         </testsuite>
+        <testsuite name="lookup">
+            <directory>tests/Lookup</directory>
+        </testsuite>
         <testsuite name="cli">
             <directory>tests/Cli</directory>
         </testsuite>
