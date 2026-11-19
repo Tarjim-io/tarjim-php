@@ -42,9 +42,19 @@ final class ObjectUrl
 
     private static function sameOrigin(string $deliveryUrl, string $reference): ?string
     {
+        // No legitimate address carries credentials, and '@' is how a reference turns the base host
+        // into a userinfo prefix of another one.
+        if (strpos($reference, '@') !== false) {
+            return null;
+        }
         $base = self::split($deliveryUrl);
         $ref = self::split($reference);
         if ($base === null || $ref === null || $base['scheme'] === null || $base['authority'] === null) {
+            return null;
+        }
+        // A relative path that starts with a delimiter or a dot is the shape of an authority
+        // continuation (".evil", "-evil", ":8443") under a naive concatenation: refuse it outright.
+        if ($ref['scheme'] === null && $ref['authority'] === null && $ref['path'] !== '' && preg_match('/^[A-Za-z0-9_%~]/', $ref['path']) !== 1) {
             return null;
         }
 
@@ -68,8 +78,9 @@ final class ObjectUrl
             } elseif ($ref['path'][0] === '/') {
                 $path = self::removeDots($ref['path']);
             } else {
+                // A base with an authority and an empty path merges as "/" + reference.
                 $slash = strrpos($base['path'], '/');
-                $directory = $slash === false ? '' : substr($base['path'], 0, $slash + 1);
+                $directory = $slash === false ? '/' : substr($base['path'], 0, $slash + 1);
                 $path = self::removeDots($directory . $ref['path']);
             }
         }
@@ -82,7 +93,24 @@ final class ObjectUrl
             return null;
         }
 
-        return strtolower($scheme) . '://' . $authority . $path . ($query === null ? '' : '?' . $query);
+        $built = strtolower($scheme) . '://' . $authority . $path . ($query === null ? '' : '?' . $query);
+
+        // What gets requested is the built string, so it is parsed again rather than trusting the parts.
+        return self::originOfUrl($built) === self::originOfUrl($deliveryUrl) && self::originOfUrl($built) !== null ? $built : null;
+    }
+
+    private static function originOfUrl(string $url): ?string
+    {
+        $parts = parse_url($url);
+        if (!is_array($parts) || !isset($parts['scheme'], $parts['host']) || isset($parts['user']) || isset($parts['pass'])) {
+            return null;
+        }
+        $scheme = strtolower($parts['scheme']);
+        if ($scheme !== 'https' && $scheme !== 'http') {
+            return null;
+        }
+
+        return $scheme . '://' . strtolower($parts['host']) . ':' . ($parts['port'] ?? ($scheme === 'https' ? 443 : 80));
     }
 
     /** @return array{scheme: string|null, authority: string|null, path: string, query: string|null}|null */
