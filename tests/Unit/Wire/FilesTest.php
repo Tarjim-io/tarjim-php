@@ -275,4 +275,49 @@ final class FilesTest extends WireCase
         self::assertSame(5, $result->results[$hashes[0]]->retryAfter);
         self::assertSame(Outcome::SERVER, $result->results[$hashes[1]]->kind);
     }
+
+    public function testAfterTheReleaseMovedTheResultKeepsTheMetaItWasAskedFor(): void
+    {
+        $release = $this->release();
+        $meta = $this->cdnMeta($release);
+        foreach ($release->files as $hash => $bytes) {
+            $this->fake->on(self::CDN . 'slices/' . $hash . '.json', new Response(403));
+        }
+        $this->fake->on(self::DELIVERY, ReleaseBuilder::metaResponse($release->meta([
+            'checksum' => str_repeat('c', 64),
+            'releaseId' => '8',
+            'authenticated' => false,
+            'signedQuery' => 'Expires=9&Signature=moved',
+            'manifestUrl' => self::CDN . '8/manifest',
+            'slicesBaseUrl' => self::CDN . 'slices/',
+        ])));
+        $result = $this->client()->fetchFiles($meta, self::refs($release));
+
+        self::assertSame('7', $result->meta->releaseId);
+        self::assertSame($release->checksum(), $result->meta->checksum);
+    }
+
+    public function testTheRereadNamesTheReleaseHeldNotTheOneBeingFetched(): void
+    {
+        $release = $this->release();
+        $client = $this->client();
+        $this->fake->on(self::DELIVERY, ReleaseBuilder::metaResponse($release->meta([
+            'authenticated' => false,
+            'signedQuery' => self::SIGNED,
+            'manifestUrl' => self::CDN . '7/manifest',
+            'slicesBaseUrl' => self::CDN . 'slices/',
+        ])));
+        $meta = $client->fetchMeta('5', '"r5-x"')->meta;
+        self::assertNotNull($meta);
+        foreach ($release->files as $hash => $bytes) {
+            $this->fake->on(self::CDN . 'slices/' . $hash . '.json', new Response(403));
+        }
+        $client->fetchFiles($meta, self::refs($release));
+        $metaReads = array_values(array_filter($this->fake->urls(), static function (string $u): bool {
+            return strpos($u, self::DELIVERY) === 0;
+        }));
+
+        self::assertCount(2, $metaReads);
+        self::assertStringEndsWith('&release=5', $metaReads[1]);
+    }
 }

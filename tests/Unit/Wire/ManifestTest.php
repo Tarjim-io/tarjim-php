@@ -323,4 +323,26 @@ final class ManifestTest extends WireCase
         self::assertNotNull($manifest);
         self::assertSame(2, $manifest->schemaVersion);
     }
+
+    public function testTheRereadNamesTheReleaseHeld(): void
+    {
+        $release = $this->release();
+        $client = $this->client();
+        $this->fake->on(self::DELIVERY, ReleaseBuilder::metaResponse($release->meta([
+            'authenticated' => false,
+            'signedQuery' => self::SIGNED,
+            'manifestUrl' => self::CDN . '7/manifest',
+            'slicesBaseUrl' => self::CDN . 'slices/',
+        ])));
+        $meta = $client->fetchMeta('5')->meta;
+        self::assertNotNull($meta);
+        $this->fake->on(self::CDN . '7/manifest', new Response(403));
+        $client->fetchManifest($meta);
+        $metaReads = array_values(array_filter($this->fake->urls(), static function (string $u): bool {
+            return strpos($u, self::DELIVERY) === 0;
+        }));
+
+        self::assertCount(2, $metaReads);
+        self::assertStringEndsWith('&release=5', $metaReads[1]);
+    }
 }

@@ -128,4 +128,21 @@ final class WireOverCurlTest extends TestCase
             return $r['path'] === '/real/meta';
         }));
     }
+
+    public function testAPathlessDeliveryUrlNeverSendsTheKeyToAnotherServer(): void
+    {
+        $release = self::release();
+        $other = new TestServer();
+        $other->route('/m.json', Route::answer(200, $release->manifestBytes()));
+        $this->server->route('/', Route::json(200, $release->meta(['manifestUrl' => '@127.0.0.1:' . $other->port . '/m.json'])));
+        $client = new DeliveryClient(new CurlTransport(), $this->server->origin(), ReleaseBuilder::KEY);
+        $meta = $client->fetchMeta();
+        self::assertNotNull($meta->meta);
+        $outcome = $client->fetchManifest($meta->meta);
+        $reached = $other->requests();
+        $other->stop();
+
+        self::assertSame(Outcome::REFUSED, $outcome->kind);
+        self::assertSame([], $reached);
+    }
 }

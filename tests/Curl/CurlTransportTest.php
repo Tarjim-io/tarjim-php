@@ -228,4 +228,14 @@ final class CurlTransportTest extends TestCase
             self::assertNull(TestServer::headerOf($request, 'x-injected'));
         }
     }
+
+    public function testARedirectWithABodyOverTheLimitIsStillNoAnswer(): void
+    {
+        self::$server->route('/moved-big', Route::answer(302, str_repeat('r', 4096), ['Location' => '/elsewhere'])->repeat(64));
+        $response = self::send('/moved-big', 1024);
+
+        self::assertSame(0, $response->status);
+        self::assertNull($response->body);
+        self::assertFalse($response->tooLarge);
+    }
 }

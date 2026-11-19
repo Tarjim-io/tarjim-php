@@ -154,7 +154,7 @@ final class MetaTest extends WireCase
     /** @return iterable<string, array{string}> */
     public function unusableRetryAfter(): iterable
     {
-        yield 'a date' => ['Wed, 21 Oct 2026 07:28:00 GMT'];
+        yield 'not a date' => ['Someday, 99 Foo 2026 07:28:00 GMT'];
         yield 'negative' => ['-5'];
         yield 'a fraction' => ['1.5'];
         yield 'empty' => [''];
@@ -231,6 +231,7 @@ final class MetaTest extends WireCase
         yield 'release id negative' => [['releaseId' => -7]];
         yield 'release id fractional' => [['releaseId' => 7.5]];
         yield 'release id empty' => [['releaseId' => '']];
+        yield 'release id with a leading zero' => [['releaseId' => '007']];
         yield 'neither mode' => [['authenticated' => false]];
         yield 'cdn with an empty signature' => [['authenticated' => false, 'signedQuery' => '']];
     }
@@ -284,5 +285,53 @@ final class MetaTest extends WireCase
         }, self::DELIVERY, self::KEY);
 
         self::assertSame(Outcome::NETWORK, $client->fetchMeta()->kind);
+    }
+
+    public function testRetryAfterAsADateIsHonoured(): void
+    {
+        $this->fake->on(self::DELIVERY, new Response(429, ['retry-after' => gmdate('D, d M Y H:i:s', time() + 120) . ' GMT']));
+        $retryAfter = $this->client()->fetchMeta()->retryAfter;
+
+        self::assertNotNull($retryAfter);
+        self::assertGreaterThanOrEqual(110, $retryAfter);
+        self::assertLessThanOrEqual(121, $retryAfter);
+    }
+
+    public function testRetryAfterAsAPastDateMeansNow(): void
+    {
+        $this->fake->on(self::DELIVERY, new Response(503, ['retry-after' => 'Wed, 21 Oct 2015 07:28:00 GMT']));
+
+        self::assertSame(0, $this->client()->fetchMeta()->retryAfter);
+    }
+
+    /** @return iterable<string, array{string}> */
+    public function unsafeEtags(): iterable
+    {
+        yield 'a carriage return' => ["\"a\rb\""];
+        yield 'a line feed' => ["\"a\nb\""];
+        yield 'a nul' => ["\"a\0b\""];
+        yield 'a tab' => ["\"a\tb\""];
+        yield 'non-ascii' => ["\"r7-\xc3\xa9\""];
+        yield 'too long' => ['"' . str_repeat('a', 300) . '"'];
+    }
+
+    /** @dataProvider unsafeEtags */
+    public function testAnEtagThatCouldNotBeSentBackIsNotKept(string $etag): void
+    {
+        $this->fake->on(self::DELIVERY, ReleaseBuilder::metaResponse($this->release()->meta(), $etag));
+        $outcome = $this->client()->fetchMeta();
+
+        self::assertSame(Outcome::RECEIVED, $outcome->kind);
+        self::assertNotNull($outcome->meta);
+        self::assertNull($outcome->meta->etag);
+    }
+
+    public function testAWeakEtagIsKept(): void
+    {
+        $this->fake->on(self::DELIVERY, ReleaseBuilder::metaResponse($this->release()->meta(), 'W/"r7-abc"'));
+        $outcome = $this->client()->fetchMeta();
+
+        self::assertNotNull($outcome->meta);
+        self::assertSame('W/"r7-abc"', $outcome->meta->etag);
     }
 }

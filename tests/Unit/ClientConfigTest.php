@@ -120,6 +120,44 @@ final class ClientConfigTest extends TestCase
         self::assertStringNotContainsString(self::KEY, serialize($client->status()));
     }
 
+    public function testStrictModeKeepsTheKeyOutOfTheTraceArguments(): void
+    {
+        $ignoreArgs = ini_get('zend.exception_ignore_args');
+        ini_set('zend.exception_ignore_args', '0');
+        try {
+            Client::create(['strict' => true, 'deliveryUrl' => 'nope', 'key' => self::KEY, 'dir' => '/srv/' . self::KEY]);
+            self::fail('strict mode accepted a bad config');
+        } catch (\InvalidArgumentException $error) {
+            $frames = array_filter($error->getTrace(), static function (array $frame): bool {
+                return strpos($frame['class'] ?? '', 'Tarjim\\') === 0 && strpos($frame['class'] ?? '', 'Tarjim\\Tests\\') !== 0;
+            });
+            self::assertNotEmpty($frames);
+            foreach ($frames as $frame) {
+                self::assertFalse(strpos((string) json_encode($frame['args'] ?? []), self::KEY) !== false, 'the key is an argument of ' . $frame['class'] . '::' . $frame['function']);
+            }
+        } finally {
+            ini_set('zend.exception_ignore_args', (string) $ignoreArgs);
+        }
+    }
+
+    public function testDumpingTheClientShowsNoKey(): void
+    {
+        $client = Client::create(['dir' => sys_get_temp_dir(), 'deliveryUrl' => 'https://delivery.example.test/delivery/dst_test/meta', 'key' => self::KEY]);
+        ob_start();
+        var_dump($client);
+        $dumps = print_r($client, true) . (string) ob_get_clean();
+
+        // Not assertStringNotContainsString: its failure message would print the whole dump.
+        self::assertFalse(strpos($dumps, self::KEY) !== false, 'the key appears in a dump of the client');
+    }
+
+    public function testDumpingTheDeliveryClientShowsNoKey(): void
+    {
+        $client = new \Tarjim\Wire\DeliveryClient(new FakeTransport(), 'https://delivery.example.test/delivery/dst_test/meta', self::KEY);
+
+        self::assertFalse(strpos(print_r($client, true), self::KEY) !== false, 'the key appears in a dump of the delivery client');
+    }
+
     public function testStrictModeThrowsWithoutTheKeyInTheMessage(): void
     {
         try {
