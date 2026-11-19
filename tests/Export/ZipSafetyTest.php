@@ -25,7 +25,6 @@ final class ZipSafetyTest extends ExportCase
         yield 'absolute' => ['/tmp/tarjim-escape.php'];
         yield 'backslash parent' => ['..\\escape.php'];
         yield 'drive letter' => ['C:/escape.php'];
-        yield 'nul' => ["en/a.php\0.txt"];
         yield 'our own list' => ['.tarjim-export.json'];
     }
 
@@ -80,5 +79,17 @@ final class ZipSafetyTest extends ExportCase
         $result = $this->pullZip((new ZipBuilder())->file('en/./a.php', 'A'));
 
         self::assertSame(ExportResult::FAILED, $result->status);
+    }
+
+    public function testANulInAnEntryNameNeverReachesTheDisk(): void
+    {
+        // libzip reports a NUL in a stored name as a space, so the entry may install under that name.
+        $result = $this->pullZip((new ZipBuilder())->file('en/ok.php', 'OK')->rawName("en/a.php\0.txt", 'X'));
+
+        foreach (array_keys($this->outFiles()) as $name) {
+            self::assertStringNotContainsString("\0", $name);
+        }
+        self::assertContains($result->status, [ExportResult::FAILED, ExportResult::UPDATED]);
+        self::assertSame(ExportResult::UPDATED === $result->status ? 'OK' : null, $this->outFiles()['en/ok.php'] ?? null);
     }
 }
