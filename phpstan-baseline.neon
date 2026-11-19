@@ -1,11 +1,6 @@
 parameters:
 	ignoreErrors:
 		-
-			message: "#^Property Tarjim\\\\Client\\:\\:\\$config is never read, only written\\.$#"
-			count: 1
-			path: src/Client.php
-
-		-
 			message: "#^Property Tarjim\\\\Wire\\\\DeliveryClient\\:\\:\\$deliveryUrl is never read, only written\\.$#"
 			count: 1
 			path: src/Wire/DeliveryClient.php

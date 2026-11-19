@@ -22,18 +22,33 @@ final class Client
      */
     public static function create(array $config): self
     {
-        throw new \LogicException('not implemented');
+        $parsed = Config::fromArray($config);
+        $problems = $parsed->problems();
+        $client = new self($parsed);
+        foreach ($problems as $problem) {
+            $client->log('error', $problem);
+        }
+        if ($problems !== [] && $parsed->get('strict') === true) {
+            self::refuse($problems);
+        }
+
+        return $client;
     }
 
     /** @param array<string, mixed> $options */
     public function refresh(array $options = []): RefreshResult
     {
+        $problems = $this->config->refreshProblems();
+        if ($problems !== []) {
+            return new RefreshResult(RefreshResult::MISCONFIGURED, implode('; ', $problems));
+        }
+
         throw new \LogicException('not implemented');
     }
 
     public function status(): Status
     {
-        throw new \LogicException('not implemented');
+        return new Status();
     }
 
     /**
@@ -42,7 +57,7 @@ final class Client
      */
     public function t(string $key, array $args = [], array $options = []): string
     {
-        throw new \LogicException('not implemented');
+        return $key;
     }
 
     /**
@@ -78,5 +93,30 @@ final class Client
     public function exports(): Export\Exports
     {
         throw new \LogicException('not implemented');
+    }
+
+    /**
+     * Takes only the problem list, so no frame of the exception's trace holds the config array
+     * (and the key in it).
+     *
+     * @param list<string> $problems
+     * @return never
+     */
+    private static function refuse(array $problems): void
+    {
+        throw new \InvalidArgumentException('Invalid Tarjim config: ' . implode('; ', $problems));
+    }
+
+    /** A logger that is missing, not callable or throws must never break the page. */
+    private function log(string $level, string $message): void
+    {
+        $logger = $this->config->get('logger');
+        if (!is_callable($logger)) {
+            return;
+        }
+        try {
+            $logger($level, $message, []);
+        } catch (\Throwable $ignored) {
+        }
     }
 }
