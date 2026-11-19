@@ -6,21 +6,6 @@ parameters:
 			path: src/Client.php
 
 		-
-			message: "#^Property Tarjim\\\\Wire\\\\CurlTransport\\:\\:\\$caBundle is never read, only written\\.$#"
-			count: 1
-			path: src/Wire/CurlTransport.php
-
-		-
-			message: "#^Property Tarjim\\\\Wire\\\\CurlTransport\\:\\:\\$connectTimeout is never read, only written\\.$#"
-			count: 1
-			path: src/Wire/CurlTransport.php
-
-		-
-			message: "#^Property Tarjim\\\\Wire\\\\CurlTransport\\:\\:\\$stallTimeout is never read, only written\\.$#"
-			count: 1
-			path: src/Wire/CurlTransport.php
-
-		-
 			message: "#^Property Tarjim\\\\Wire\\\\DeliveryClient\\:\\:\\$deliveryUrl is never read, only written\\.$#"
 			count: 1
 			path: src/Wire/DeliveryClient.php
