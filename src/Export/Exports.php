@@ -66,6 +66,7 @@ final class Exports
             $result->message = 'the export failed unexpectedly';
         }
         $result->exportId = $this->exportId;
+        $result->message = $this->withoutKey($result->message);
         if ($result->status !== ExportResult::UPDATED) {
             ($this->log)($result->status === ExportResult::FAILED ? 'warning' : 'error', $result->message);
         }
@@ -94,13 +95,13 @@ final class Exports
         $exportId = $this->exportId = $export['id'];
         while ($export['status'] !== 'completed') {
             if ($export['status'] === 'failed') {
-                throw new Refusal('the export failed on the server' . self::detail($export['errorInfo'] ?? null));
+                throw new Refusal('the export failed on the server' . $this->detail($export['errorInfo'] ?? null));
             }
             if ($this->now() + $poll > $deadline) {
                 throw new Refusal('the export did not finish within ' . $timeout . ' seconds');
             }
             $this->sleep($poll);
-            $export = $this->poll($base . '/' . $exportId, $headers) ?? $export;
+            $export = $this->poll($base . '/' . $exportId, $headers, $exportId) ?? $export;
         }
 
         $download = $this->send(new Request($base . '/' . $exportId . '/download', $headers, $maxBytes));
@@ -224,14 +225,16 @@ final class Exports
      * @return array{id: int, status: string, fileName?: mixed, errorInfo?: mixed}|null null to try again at the next interval
      * @throws Refusal
      */
-    private function poll(string $url, array $headers): ?array
+    private function poll(string $url, array $headers, int $exportId): ?array
     {
         $response = $this->send(new Request($url, $headers, self::JSON_LIMIT));
         if (in_array($response->status, [400, 401, 403, 404], true)) {
             throw new Refusal('the export could not be followed' . self::statusNote($response));
         }
+        $export = $response->status === 200 ? self::decode($response) : null;
 
-        return $response->status === 200 ? self::decode($response) : null;
+        // An answer about another export says nothing about this one, and must not be installed.
+        return $export !== null && $export['id'] === $exportId ? $export : null;
     }
 
     private function send(Request $request): Response
@@ -274,23 +277,35 @@ final class Exports
             $disposition = $download->header('content-disposition');
             $name = $disposition !== null && preg_match('/filename\s*=\s*"?([^";]*)"?/i', $disposition, $m) === 1 ? $m[1] : '';
         }
-        if (!Paths::isBasename($name)) {
+        // A name starting with a dot would drop a dotfile (.htaccess, .env) into a folder the web serves.
+        if (!Paths::isBasename($name) || $name[0] === '.' || !Paths::fitsDisk($name)) {
             throw new Refusal('the export has no usable file name');
         }
 
         return $name;
     }
 
-    /** The server's own words, trimmed: they end up in a terminal and a log. */
-    /** @param mixed $info */
-    private static function detail($info): string
+    /**
+     * The server's own words, trimmed: they end up in a terminal and a log. The key comes out first,
+     * so that cutting the text to length cannot leave a piece of it behind.
+     *
+     * @param mixed $info
+     */
+    private function detail($info): string
     {
         if (!is_string($info) || trim($info) === '') {
             return '';
         }
-        $clean = (string) preg_replace('/[\x00-\x1f\x7f]+/', ' ', $info);
+        $clean = (string) preg_replace('/[\x00-\x1f\x7f]+/', ' ', $this->withoutKey($info));
 
         return ': ' . (function_exists('mb_substr') ? mb_substr($clean, 0, 300) : substr($clean, 0, 300));
+    }
+
+    private function withoutKey(string $text): string
+    {
+        $key = $this->config->get('apiKey');
+
+        return is_string($key) && $key !== '' ? str_replace($key, '[key removed]', $text) : $text;
     }
 
     private static function statusNote(Response $response): string
