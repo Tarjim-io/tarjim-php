@@ -24,6 +24,9 @@ final class DeliveryClient
     /** @var string */
     private $key;
 
+    /** @var string|null the release the caller holds, as of the last fetchMeta() */
+    private $heldReleaseId;
+
     public function __construct(Transport $transport, string $deliveryUrl, string $key)
     {
         $this->transport = $transport;
@@ -31,8 +34,15 @@ final class DeliveryClient
         $this->key = $key;
     }
 
+    /** Nothing secret: the delivery URL may carry a key and the key itself must stay out of dumps. */
+    public function __debugInfo(): array
+    {
+        return ['transport' => get_class($this->transport)];
+    }
+
     public function fetchMeta(?string $heldReleaseId = null, ?string $heldEtag = null): Outcome
     {
+        $this->heldReleaseId = $heldReleaseId;
         try {
             $url = $this->deliveryUrl . '?platform=php&sdkVersion=' . rawurlencode(Version::SDK)
                 . '&release=' . rawurlencode($heldReleaseId === null || $heldReleaseId === '' ? '0' : $heldReleaseId);
@@ -75,8 +85,9 @@ final class DeliveryClient
                 return $outcome;
             }
 
-            // One re-read: an expired signature is the only thing it can fix.
-            $again = $this->fetchMeta($meta->releaseId);
+            // One re-read: an expired signature is the only thing it can fix. It names the release the
+            // caller holds, not the one being fetched, and sends no validator.
+            $again = $this->fetchMeta($this->heldReleaseId);
             if ($again->kind !== Outcome::RECEIVED || $again->meta === null || $again->meta->checksum !== $meta->checksum) {
                 return $outcome;
             }
@@ -112,16 +123,13 @@ final class DeliveryClient
                 return new FilesResult($results, $meta, false);
             }
 
-            $again = $this->fetchMeta($meta->releaseId);
-            if ($again->kind !== Outcome::RECEIVED || $again->meta === null) {
+            $again = $this->fetchMeta($this->heldReleaseId);
+            if ($again->kind !== Outcome::RECEIVED || $again->meta === null || $again->meta->checksum !== $meta->checksum) {
                 return new FilesResult($results, $meta, true);
             }
             $fresh = $again->meta;
             // The whole re-read meta is used: the base and the mode can move together with the signature.
-            if (
-                $fresh->checksum === $meta->checksum
-                && ($fresh->signedQuery !== $meta->signedQuery || $fresh->slicesBaseUrl !== $meta->slicesBaseUrl || $fresh->authenticated !== $meta->authenticated)
-            ) {
+            if ($fresh->signedQuery !== $meta->signedQuery || $fresh->slicesBaseUrl !== $meta->slicesBaseUrl || $fresh->authenticated !== $meta->authenticated) {
                 foreach ($stale as $file) {
                     $results[$file->hash] = $this->readFile($fresh, $file);
                 }
@@ -248,7 +256,7 @@ final class DeliveryClient
             $releaseId,
             is_string($distribution) ? $distribution : null,
             is_string($stage) ? $stage : null,
-            $response->header('etag')
+            self::etag($response->header('etag'))
         );
 
         return $outcome;
@@ -265,7 +273,14 @@ final class DeliveryClient
             return (string) $value;
         }
 
-        return is_string($value) && preg_match('/^[0-9]+\z/', $value) === 1 ? $value : null;
+        // A leading zero would name a different path than the number it spells.
+        return is_string($value) && preg_match('/^(0|[1-9][0-9]*)\z/', $value) === 1 ? $value : null;
+    }
+
+    /** Kept only if it can be sent back as If-None-Match without breaking the header. */
+    private static function etag(?string $etag): ?string
+    {
+        return $etag !== null && preg_match('/^(W\/)?"[\x21\x23-\x7E]{0,250}"\z/', $etag) === 1 ? $etag : null;
     }
 
     /** Nothing else from an error body is kept: the key may be echoed in its detail. */
@@ -281,7 +296,7 @@ final class DeliveryClient
     {
         $value = trim((string) $response->header('retry-after'), " \t");
         if (preg_match('/^[0-9]+\z/', $value) !== 1) {
-            return null;
+            return self::retryAfterDate($value);
         }
         $digits = ltrim($value, '0');
         // Too many digits for an int is still a wait: cap it rather than drop it.
@@ -290,6 +305,18 @@ final class DeliveryClient
         }
 
         return min((int) $digits, self::RETRY_AFTER_CAP);
+    }
+
+    /** Only the RFC 7231 fixed-length date; strtotime alone would accept far more than a server sends. */
+    private static function retryAfterDate(string $value): ?int
+    {
+        $pattern = '/^(Mon|Tue|Wed|Thu|Fri|Sat|Sun), [0-9]{2} (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) [0-9]{4} [0-9]{2}:[0-9]{2}:[0-9]{2} GMT\z/';
+        if (preg_match($pattern, $value) !== 1) {
+            return null;
+        }
+        $at = strtotime($value);
+
+        return $at === false ? null : max(0, min($at - time(), self::RETRY_AFTER_CAP));
     }
 
     /** A non-success answer; $unfetchable is for objects, whose 4xx and 503 are not a configuration problem. */
