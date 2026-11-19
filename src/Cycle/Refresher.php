@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tarjim\Cycle;
 
 use Tarjim\Config;
+use Tarjim\Lookup\BundleChoice;
 use Tarjim\RefreshResult;
 use Tarjim\Store\Disk;
 use Tarjim\Store\HeldCopy;
@@ -170,6 +171,13 @@ final class Refresher
             return $this->failed($store, $state, $now, null, 'the release uses a format this client does not know');
         }
 
+        // Checked before any file is fetched: a bundle that is missing or nested would otherwise show
+        // key text on every page while this refresh reported success.
+        $problem = $this->bundleProblem($manifest->manifest->bundles);
+        if ($problem !== null) {
+            return $this->result(RefreshResult::MISCONFIGURED, $problem, null, $store);
+        }
+
         // Nested bundles are not read by this client, so none of their files are fetched.
         $index = [];
         $needed = [];
@@ -242,6 +250,26 @@ final class Refresher
         $store->prune($now, $installed);
 
         return $this->result(RefreshResult::UPDATED, 'release ' . $meta->releaseId . ' installed', null, $store);
+    }
+
+    /**
+     * @param array<string, array{type: string, name: string, layout: string|null}> $bundles
+     * @return string|null what is wrong with the configured bundle in this release
+     */
+    private function bundleProblem(array $bundles): ?string
+    {
+        $configured = $this->config->get('bundle');
+        $name = is_string($configured) && $configured !== '' ? $configured : 'default';
+        $id = BundleChoice::find($bundles, $name);
+        if ($id === null) {
+            return "the configured bundle '" . $name . "' is not in the release";
+        }
+        $layout = $bundles[$id]['layout'];
+        if ($layout !== null && $layout !== 'flat') {
+            return "the configured bundle '" . $name . "' is nested; create it as a flat bundle";
+        }
+
+        return null;
     }
 
     private function unreleased(Store $store, State $state, int $now): RefreshResult
