@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Tarjim;
 
+use Tarjim\Store\Disk;
+use Tarjim\Store\LocalDisk;
 use Tarjim\Wire\CurlTransport;
 use Tarjim\Wire\DeliveryUrl;
 use Tarjim\Wire\Transport;
@@ -47,6 +49,10 @@ final class Config
         if (!is_string($dir) || $dir === '') {
             $dir = null;
             $refreshProblems[] = 'dir must be a non-empty string';
+        } elseif (preg_match('#^(/|[A-Za-z]:[\\\\/])#', $dir) !== 1) {
+            // The command line and the web server would otherwise resolve it against different folders.
+            $dir = null;
+            $refreshProblems[] = 'dir must be an absolute path';
         }
 
         $deliveryUrl = $config['deliveryUrl'] ?? null;
@@ -81,6 +87,23 @@ final class Config
             $logger = null;
         }
 
+        // Test seams: the clock, the sleep and the disk the refresh cycle works through.
+        $now = $config['now'] ?? null;
+        if ($now !== null && !is_callable($now)) {
+            $problems[] = 'now must be callable';
+            $now = null;
+        }
+        $sleep = $config['sleep'] ?? null;
+        if ($sleep !== null && !is_callable($sleep)) {
+            $problems[] = 'sleep must be callable';
+            $sleep = null;
+        }
+        $disk = $config['disk'] ?? null;
+        if ($disk !== null && !$disk instanceof Disk) {
+            $problems[] = 'disk must implement Tarjim\\Store\\Disk';
+            $disk = null;
+        }
+
         $keyCase = $config['keyCase'] ?? 'exact';
         if ($keyCase !== 'exact' && $keyCase !== 'lower') {
             $problems[] = "keyCase must be 'exact' or 'lower'";
@@ -113,6 +136,9 @@ final class Config
             'caBundle' => $caBundle,
             'strict' => self::flag($config, 'strict', $problems),
             'transport' => $transport ?? new CurlTransport(5, 20, $caBundle),
+            'now' => $now,
+            'sleep' => $sleep,
+            'disk' => $disk ?? new LocalDisk(),
             'apiUrl' => self::optionalString($config, 'apiUrl', $problems),
             'apiKey' => self::optionalString($config, 'apiKey', $problems),
         ];

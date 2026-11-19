@@ -1,0 +1,231 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Tarjim\Store;
+
+/**
+ * The local copy: objects/<sha256>.json, releases/<id>-<checksum8>.json, current.json, state.json
+ * and lock. Every file name is built from a 64-hex hash, digits and 8 hex characters, never from
+ * anything a response names (a bundle, a language).
+ */
+final class Store
+{
+    private const OBJECT_NAME = '/^[0-9a-f]{64}\.json\z/';
+    private const INDEX_NAME = '/^[0-9]+-[0-9a-f]{8}\.json\z/';
+    private const TEMP_NAME = '/^\..+\.tmp\z/';
+    private const KEEP_SECONDS = 86400;
+
+    /** @var Disk */
+    private $disk;
+
+    /** @var string */
+    private $dir;
+
+    public function __construct(Disk $disk, string $dir)
+    {
+        $this->disk = $disk;
+        $this->dir = rtrim($dir, '/\\');
+    }
+
+    public static function isHash(string $value): bool
+    {
+        return preg_match('/^[0-9a-f]{64}\z/', $value) === 1;
+    }
+
+    public static function indexName(string $releaseId, string $checksum): string
+    {
+        return $releaseId . '-' . substr($checksum, 0, 8) . '.json';
+    }
+
+    public function lockPath(): string
+    {
+        return $this->dir . '/lock';
+    }
+
+    /** @return string|null what is wrong with the folder; null when it can be written */
+    public function prepare(): ?string
+    {
+        foreach ([$this->dir, $this->dir . '/objects', $this->dir . '/releases'] as $path) {
+            if (!$this->disk->ensureDir($path)) {
+                return 'the store folder cannot be created';
+            }
+            // is_writable() is about this process's user, which is the point: a copy written by
+            // another user (root at build time) is one this process could never update.
+            if (!@is_dir($path) || !@is_writable($path)) {
+                return 'the store folder is not writable by this user';
+            }
+        }
+
+        return null;
+    }
+
+    public function readState(): State
+    {
+        return State::fromDecoded($this->readJson($this->dir . '/state.json'));
+    }
+
+    public function writeState(State $state): bool
+    {
+        return $this->putJson($this->dir . '/state.json', $state->toArray());
+    }
+
+    /** The installed release, or null when there is none or any file it names is missing. */
+    public function held(): ?HeldCopy
+    {
+        $current = $this->readJson($this->dir . '/current.json');
+        if ($current === null) {
+            return null;
+        }
+        $index = $current['release'] ?? null;
+        $releaseId = $current['releaseId'] ?? null;
+        $checksum = $current['checksum'] ?? null;
+        if (!is_string($index) || preg_match(self::INDEX_NAME, $index) !== 1
+            || !is_string($releaseId) || preg_match('/^[0-9]+\z/', $releaseId) !== 1
+            || !is_string($checksum) || !self::isHash($checksum)) {
+            return null;
+        }
+        $hashes = $this->indexHashes($index);
+        if ($hashes === null) {
+            return null;
+        }
+        foreach ($hashes as $hash) {
+            if ($this->disk->mtime($this->objectPath($hash)) === null) {
+                return null;
+            }
+        }
+        $distribution = $current['distribution'] ?? null;
+        $stage = $current['stage'] ?? null;
+        $installedAt = $current['installedAt'] ?? null;
+        $previous = $current['previous'] ?? null;
+
+        return new HeldCopy(
+            $releaseId,
+            $checksum,
+            is_string($distribution) ? $distribution : null,
+            is_string($stage) ? $stage : null,
+            is_int($installedAt) ? $installedAt : null,
+            $index,
+            is_string($previous) && preg_match(self::INDEX_NAME, $previous) === 1 ? $previous : null
+        );
+    }
+
+    public function hasObject(string $hash): bool
+    {
+        return self::isHash($hash) && $this->disk->mtime($this->objectPath($hash)) !== null;
+    }
+
+    public function putObject(string $hash, string $bytes): bool
+    {
+        return self::isHash($hash) && $this->disk->put($this->objectPath($hash), $bytes);
+    }
+
+    /** @param array<string, mixed> $index */
+    public function putIndex(string $name, array $index): bool
+    {
+        return preg_match(self::INDEX_NAME, $name) === 1 && $this->putJson($this->dir . '/releases/' . $name, $index);
+    }
+
+    /** The last write of an install: until it lands, readers keep the old release. */
+    public function putCurrent(HeldCopy $copy): bool
+    {
+        return $this->putJson($this->dir . '/current.json', [
+            'release' => $copy->index,
+            'releaseId' => $copy->releaseId,
+            'checksum' => $copy->checksum,
+            'distribution' => $copy->distribution,
+            'stage' => $copy->stage,
+            'installedAt' => $copy->installedAt,
+            'previous' => $copy->previous,
+        ]);
+    }
+
+    /**
+     * Deletes what neither kept release names and is older than a day: a process that started on
+     * the previous release may still be reading it.
+     */
+    public function prune(int $now, HeldCopy $held): void
+    {
+        $keepIndexes = [$held->index => true];
+        if ($held->previous !== null) {
+            $keepIndexes[$held->previous] = true;
+        }
+        $keepObjects = [];
+        foreach (array_keys($keepIndexes) as $name) {
+            foreach ($this->indexHashes((string) $name) ?? [] as $hash) {
+                $keepObjects[$hash . '.json'] = true;
+            }
+        }
+
+        $this->sweep($this->dir . '/objects', self::OBJECT_NAME, $keepObjects, $now);
+        $this->sweep($this->dir . '/releases', self::INDEX_NAME, $keepIndexes, $now);
+        $this->sweep($this->dir, null, [], $now);
+    }
+
+    /**
+     * @param array<int|string, true> $keep
+     */
+    private function sweep(string $dir, ?string $namePattern, array $keep, int $now): void
+    {
+        foreach ($this->disk->files($dir) as $name) {
+            $ours = preg_match(self::TEMP_NAME, $name) === 1 || ($namePattern !== null && preg_match($namePattern, $name) === 1);
+            if (!$ours || isset($keep[$name])) {
+                continue;
+            }
+            $mtime = $this->disk->mtime($dir . '/' . $name);
+            if ($mtime !== null && $now - $mtime > self::KEEP_SECONDS) {
+                $this->disk->delete($dir . '/' . $name);
+            }
+        }
+    }
+
+    /** @return list<string>|null the hashes a release index names; null when it is unusable */
+    private function indexHashes(string $name): ?array
+    {
+        $index = $this->readJson($this->dir . '/releases/' . $name);
+        $bundles = $index['bundles'] ?? null;
+        if (!is_array($bundles)) {
+            return null;
+        }
+        $hashes = [];
+        foreach ($bundles as $bundle) {
+            $languages = is_array($bundle) ? ($bundle['languages'] ?? null) : null;
+            if (!is_array($languages)) {
+                return null;
+            }
+            foreach ($languages as $hash) {
+                if (!is_string($hash) || !self::isHash($hash)) {
+                    return null;
+                }
+                $hashes[$hash] = $hash;
+            }
+        }
+
+        return $hashes === [] ? null : array_values($hashes);
+    }
+
+    private function objectPath(string $hash): string
+    {
+        return $this->dir . '/objects/' . $hash . '.json';
+    }
+
+    /** @return array<mixed>|null */
+    private function readJson(string $path): ?array
+    {
+        $bytes = $this->disk->read($path);
+        if ($bytes === null) {
+            return null;
+        }
+        $decoded = json_decode($bytes, true);
+
+        return is_array($decoded) ? $decoded : null;
+    }
+
+    /** @param array<string, mixed> $data */
+    private function putJson(string $path, array $data): bool
+    {
+        $json = json_encode($data, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_FORCE_OBJECT);
+
+        return is_string($json) && $this->disk->put($path, $json);
+    }
+}
