@@ -120,6 +120,22 @@ final class Config
         return new self($values, array_merge($refreshProblems, $problems), $refreshProblems);
     }
 
+    /**
+     * Which options are set, never their values: the key and a delivery URL that may carry one
+     * must stay out of print_r() and var_dump().
+     *
+     * @return array<string, mixed>
+     */
+    public function __debugInfo(): array
+    {
+        return [
+            'set' => array_keys(array_filter($this->values, static function ($value): bool {
+                return $value !== null;
+            })),
+            'problems' => count($this->problems),
+        ];
+    }
+
     /** @return list<string> */
     public function problems(): array
     {

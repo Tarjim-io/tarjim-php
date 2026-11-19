@@ -23,6 +23,8 @@ final class Client
     public static function create(array $config): self
     {
         $parsed = Config::fromArray($config);
+        // The argument is part of this frame in an exception trace, and the array holds the key.
+        $config = [];
         $problems = $parsed->problems();
         $client = new self($parsed);
         foreach ($problems as $problem) {
@@ -33,6 +35,12 @@ final class Client
         }
 
         return $client;
+    }
+
+    /** The key and the delivery URL stay out of print_r() and var_dump(). */
+    public function __debugInfo(): array
+    {
+        return ['config' => $this->config->__debugInfo()];
     }
 
     /** @param array<string, mixed> $options */
