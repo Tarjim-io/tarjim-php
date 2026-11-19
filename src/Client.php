@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tarjim;
 
 use Tarjim\Cycle\Refresher;
+use Tarjim\Html\SafeHtml;
 use Tarjim\Lookup\Placeholders;
 use Tarjim\Lookup\Reader;
 use Tarjim\Store\Disk;
@@ -20,6 +21,9 @@ final class Client
 
     /** @var bool */
     private $readerBuilt = false;
+
+    /** @var bool */
+    private $domWarned = false;
 
     private function __construct(Config $config)
     {
@@ -134,7 +138,21 @@ final class Client
      */
     public function tHtml(string $key, array $args = [], array $options = []): string
     {
-        throw new \LogicException('not implemented');
+        try {
+            $reader = $this->reader();
+            $text = $reader === null ? null : $reader->text($key, $options);
+            if ($text !== null) {
+                if (!extension_loaded('dom') && !$this->domWarned) {
+                    $this->domWarned = true;
+                    $this->log('error', 'tHtml() needs the dom extension; text is escaped instead');
+                }
+
+                return SafeHtml::render($text, $args, $this->config->get('legacyPercentPlaceholders') === true);
+            }
+        } catch (\Throwable $e) {
+        }
+
+        return htmlspecialchars($key, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
     }
 
     /** @param array<string, mixed> $options */
