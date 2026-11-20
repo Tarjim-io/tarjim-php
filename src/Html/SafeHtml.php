@@ -289,10 +289,12 @@ final class SafeHtml
     private static function attributes(\DOMElement $element, string $name): string
     {
         $out = '';
+        $newTab = false;
         if ($name === 'a') {
             $href = self::url($element->getAttribute('href'), true);
             if ($href !== null) {
                 $out .= self::attribute('href', $href);
+                $newTab = strcasecmp(trim($element->getAttribute('target')), '_blank') === 0;
             }
         } elseif ($name === 'img') {
             $src = self::url($element->getAttribute('src'), false);
@@ -302,6 +304,17 @@ final class SafeHtml
             if ($element->hasAttribute('alt')) {
                 $out .= self::attribute('alt', $element->getAttribute('alt'));
             }
+        }
+        if ($element->hasAttribute('class')) {
+            $class = (string) preg_replace('/[\x00-\x1F\x7F]/', '', $element->getAttribute('class'));
+            if ($class !== '') {
+                $out .= self::attribute('class', $class);
+            }
+        }
+        if ($newTab) {
+            // A page opened in a new tab must not be able to reach back into this one; the stored
+            // rel is replaced, never trusted.
+            $out .= self::attribute('target', '_blank') . self::attribute('rel', 'noopener noreferrer');
         }
 
         return $out;

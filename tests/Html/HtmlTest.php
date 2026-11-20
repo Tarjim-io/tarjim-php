@@ -76,14 +76,14 @@ final class HtmlTest extends LookupCase
         yield 'a title' => ['<title>t</title>x', 'tx'];
         yield 'an unknown tag keeps its text' => ['<font color="red">red</font>', 'red'];
         yield 'event attributes' => ['<b onclick="alert(1)" onmouseover="x">b</b>', '<b>b</b>'];
-        yield 'style, class, id, target' => ['<p style="color:red" class="c" id="i" target="_blank">p</p>', '<p>p</p>'];
+        yield 'style, id, target off a link' => ['<p style="color:red" class="c" id="i" target="_blank">p</p>', '<p class="c">p</p>'];
         yield 'a javascript link' => ['<a href="javascript:alert(1)">x</a>', '<a>x</a>'];
         yield 'a javascript link in disguise' => ['<a href=" JaVaScRiPt:alert(1)">x</a>', '<a>x</a>'];
         yield 'an entity-encoded javascript link' => ['<a href="&#106;avascript:alert(1)">x</a>', '<a>x</a>'];
         yield 'a data link' => ['<a href="data:text/html,x">x</a>', '<a>x</a>'];
         yield 'a plain http link' => ['<a href="http://example.test">x</a>', '<a>x</a>'];
         yield 'a relative link' => ['<a href="/path">x</a>', '<a>x</a>'];
-        yield 'a link target' => ['<a href="https://example.test" target="_blank" rel="x">x</a>', '<a href="https://example.test">x</a>'];
+        yield 'a link target' => ['<a href="https://example.test" target="_blank" rel="x">x</a>', '<a href="https://example.test" target="_blank" rel="noopener noreferrer">x</a>'];
         yield 'an http image' => ['<img src="http://cdn.example.test/a.png" alt="A">', '<img alt="A">'];
         yield 'an image with an event' => ['<img src="https://cdn.example.test/a.png" onerror="alert(1)">', '<img src="https://cdn.example.test/a.png">'];
         yield 'svg' => ['<svg><script>alert(1)</script></svg>ok', 'ok'];
@@ -266,4 +266,38 @@ final class HtmlTest extends LookupCase
 
         self::assertStringStartsWith('Keep this.', $out);
     }
+
+    /** @return iterable<string, array{string, string}> */
+    public function classesAndTargets(): iterable
+    {
+        yield 'class on a tag' => ['<b class="hl">x</b>', '<b class="hl">x</b>'];
+        yield 'class on a cell' => ['<table><tbody><tr><td class="a b">x</td></tr></tbody></table>', '<table><tbody><tr><td class="a b">x</td></tr></tbody></table>'];
+        yield 'class on an image' => ['<img src="https://cdn.example.test/a.png" alt="A" class="logo">', '<img src="https://cdn.example.test/a.png" alt="A" class="logo">'];
+        yield 'class with control characters' => ["<b class=\"a\x01b\">x</b>", '<b class="ab">x</b>'];
+        yield 'class with quotes' => ['<b class=\'x"onclick=y\'>x</b>', '<b class="x&quot;onclick=y">x</b>'];
+        yield 'link order' => ['<a target="_blank" class="btn" href="https://example.test">x</a>', '<a href="https://example.test" class="btn" target="_blank" rel="noopener noreferrer">x</a>'];
+        yield 'target in capitals' => ['<a href="https://example.test" target="_BLANK">x</a>', '<a href="https://example.test" target="_blank" rel="noopener noreferrer">x</a>'];
+        yield 'target self' => ['<a href="https://example.test" target="_self">x</a>', '<a href="https://example.test">x</a>'];
+        yield 'target top' => ['<a href="https://example.test" target="_top">x</a>', '<a href="https://example.test">x</a>'];
+        yield 'target named frame' => ['<a href="https://example.test" target="main">x</a>', '<a href="https://example.test">x</a>'];
+        yield 'target on a dropped link' => ['<a href="javascript:alert(1)" target="_blank">x</a>', '<a>x</a>'];
+        yield 'target off a link' => ['<span target="_blank">x</span>', '<span>x</span>'];
+        yield 'rel without a target' => ['<a href="https://example.test" rel="nofollow">x</a>', '<a href="https://example.test">x</a>'];
+        yield 'style still dropped' => ['<span style="color:red" class="c">x</span>', '<span class="c">x</span>'];
+        yield 'a mail link opening a tab' => ['<a href="mailto:hi@example.test" target="_blank">m</a>', '<a href="mailto:hi@example.test" target="_blank" rel="noopener noreferrer">m</a>'];
+    }
+
+    /** @dataProvider classesAndTargets */
+    public function testKeepsClassesAndNewTabLinks(string $value, string $expected): void
+    {
+        self::assertSame($expected, $this->html($value));
+    }
+
+    public function testAnArgumentInAClassStaysInTheClass(): void
+    {
+        $out = $this->html('<b class="{c}">x</b>', ['c' => 'y" onclick="alert(1)']);
+
+        self::assertMatchesRegularExpression('/^<b class="[^"]*">x<\/b>$/', $out, 'one attribute, the class');
+    }
 }
+
