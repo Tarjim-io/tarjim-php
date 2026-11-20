@@ -129,8 +129,10 @@ $tarjim->t('cart.empty', [], ['locale' => 'ar', 'bundle' => 'emails']);
   never scanned again. Strings, numbers and objects with `__toString()` are inserted; anything else
   leaves the placeholder as written.
 - **`tHtml()`** keeps `a[href]` (https, mailto, tel), `b strong i em u br p span ul ol li h1–h6 hr
-  div table thead tbody tr th td` and `img[src]` (https) `[alt]`, and removes every other tag and
-  attribute. `script`, `style`, `iframe`, `svg` and similar are removed with their content. Use its
+  div table thead tbody tr th td` and `img[src]` (https) `[alt]`, plus `class` on any of them and
+  `target="_blank"` on a link (always with `rel="noopener noreferrer"`). Every other tag and
+  attribute is removed, `style` included; `script`, `style`, `iframe`, `svg` and similar are removed
+  with their content. Use its
   output in an HTML body only; for attributes, JavaScript, JSON, email subjects and SMS use `t()`
   and escape for that context.
 - **`image()`** returns an image only for an `https` URL, with `alt`, `title`, `width`, `height`
