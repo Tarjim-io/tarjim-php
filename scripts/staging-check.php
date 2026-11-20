@@ -24,7 +24,13 @@ use Tarjim\Wire\DeliveryUrl;
 use Tarjim\Wire\Meta;
 use Tarjim\Wire\Outcome;
 
-require dirname(__DIR__) . '/vendor/autoload.php';
+// From a checkout of this package, or from vendor/tarjim/tarjim-php/scripts in an app.
+foreach ([dirname(__DIR__) . '/vendor/autoload.php', dirname(__DIR__, 3) . '/autoload.php'] as $autoload) {
+    if (is_file($autoload)) {
+        require $autoload;
+        break;
+    }
+}
 
 $options = getopt('', ['delivery-url:', 'bundle:', 'record:', 'key:']);
 $options = is_array($options) ? $options : [];
@@ -50,8 +56,9 @@ if ($record !== null && ($record === '' || $record[0] !== '/')) {
     exit(2);
 }
 
+// Server-supplied text is printed too: control characters are dropped so it cannot drive the terminal.
 $say = static function (string $line) use ($key): void {
-    echo str_replace($key, '[key]', $line), "\n";
+    echo preg_replace('/[\x00-\x1F\x7F]/', '', str_replace($key, '[key]', $line)), "\n";
 };
 $removeTree = static function (string $path) use (&$removeTree): void {
     if (is_link($path) || is_file($path)) {
@@ -68,6 +75,11 @@ $removeTree = static function (string $path) use (&$removeTree): void {
 };
 
 $dir = sys_get_temp_dir() . '/tarjim-staging-check-' . bin2hex(random_bytes(6));
+// The copy holds the stage's text: readable by this user only, and removed even on a fatal error.
+@mkdir($dir, 0700);
+register_shutdown_function(static function () use ($removeTree, $dir): void {
+    $removeTree($dir);
+});
 $ok = true;
 try {
     $wire = new DeliveryClient(new CurlTransport(), $url, $key);
@@ -140,9 +152,10 @@ try {
 exit($ok ? 0 : 1);
 
 /**
- * The stage's meta, manifest and one slice per bundle and language, with nothing a public
- * repository must not hold: signature values, key names and values are replaced. The slice hashes
- * then no longer match; the fixtures are for shape, not for verification.
+ * The stage's answers rebuilt as fixtures from an allow-list of fields, so nothing a public
+ * repository must not hold survives: the key, signature values, URL queries, the distribution's
+ * name, bundle and namespace names, key names, values and attribute names are all replaced. Hashes
+ * and sizes are kept, so the fixtures show the shape, not text; they no longer verify.
  *
  * @param array{name: string, bundles: array<string, array{type: string, name: string, layout: string|null, languages: array<string, string>}>} $index
  */
@@ -151,16 +164,51 @@ function recordFixtures(DeliveryClient $wire, Meta $meta, Store $store, array $i
     if (!is_dir($out) && !mkdir($out, 0755, true) && !is_dir($out)) {
         throw new RuntimeException('cannot create the record folder');
     }
-    $count = 0;
-    $fields = get_object_vars($meta);
-    $fields['signedQuery'] = $meta->signedQuery === null ? null : (string) preg_replace('/=([^&]*)/', '=REDACTED', $meta->signedQuery);
-    unset($fields['etag']);
-    file_put_contents($out . '/meta.json', json_encode($fields, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
-    $count++;
+    $bare = static function (string $url): string {
+        return (string) preg_replace('/[?#].*$/s', '', $url);
+    };
+    $tag = static function (string $language): string {
+        return preg_match('/^[A-Za-z0-9_-]{1,35}$/', $language) === 1 ? $language : 'xx';
+    };
+    $ids = [];
+    foreach (array_keys($index['bundles']) as $n => $id) {
+        $ids[(string) $id] = 'b' . ($n + 1);
+    }
+    $write = static function (string $path, array $data): void {
+        file_put_contents($path, json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
+    };
 
-    $manifest = $wire->fetchManifest($meta);
-    if ($manifest->bytes !== null) {
-        file_put_contents($out . '/manifest.json', $manifest->bytes);
+    $write($out . '/meta.json', [
+        'schemaVersion' => $meta->schemaVersion,
+        'checksum' => $meta->checksum,
+        'manifestUrl' => $bare($meta->manifestUrl),
+        'slicesBaseUrl' => $bare($meta->slicesBaseUrl),
+        'authenticated' => $meta->authenticated,
+        'signedQuery' => $meta->signedQuery === null ? null : (string) preg_replace('/=([^&]*)/', '=REDACTED', $meta->signedQuery),
+        'distribution' => 'dst_recorded',
+        'stage' => $meta->stage === 'prod' ? 'prod' : 'dev',
+        'releaseId' => $meta->releaseId,
+    ]);
+    $count = 1;
+
+    $manifest = $wire->fetchManifest($meta)->manifest;
+    if ($manifest !== null) {
+        $bundles = [];
+        $slices = [];
+        $n = 0;
+        foreach ($manifest->bundles as $id => $bundle) {
+            $n++;
+            $name = $ids[(string) $id] ?? 'b-extra-' . $n;
+            $bundles[$name] = [
+                'type' => $bundle['type'] === 'custom' ? 'custom' : 'namespace',
+                'name' => 'bundle-' . $n,
+                'layout' => $bundle['layout'] === 'nested' ? 'nested' : 'flat',
+            ];
+            foreach ($manifest->files[(string) $id] ?? [] as $language => $file) {
+                $slices[$name][$tag((string) $language)] = ['json' => ['hash' => $file->hash, 'size' => $file->size]];
+            }
+        }
+        $write($out . '/manifest.json', ['schemaVersion' => $manifest->schemaVersion, 'bundles' => $bundles, 'slices' => $slices]);
         $count++;
     }
 
@@ -175,23 +223,23 @@ function recordFixtures(DeliveryClient $wire, Meta $meta, Store $store, array $i
             foreach ($slice['keys'] as $leaf) {
                 $n++;
                 $leaf = is_array($leaf) ? $leaf : [];
-                $clean = ['id' => (string) $n, 'value' => 'value-' . $n];
-                if (isset($leaf['type']) && is_string($leaf['type'])) {
-                    $clean['type'] = $leaf['type'];
-                    if ($leaf['type'] === 'image') {
-                        $clean['value'] = 'https://cdn.example.test/image-' . $n . '.png';
-                    }
+                $type = in_array($leaf['type'] ?? null, ['text', 'image', 'audio/video', 'file'], true) ? $leaf['type'] : null;
+                $clean = ['id' => (string) $n, 'value' => $type === 'image' ? 'https://cdn.example.test/image-' . $n . '.png' : 'value-' . $n];
+                if ($type !== null) {
+                    $clean['type'] = $type;
                 }
                 if (is_array($leaf['attributes'] ?? null)) {
-                    $clean['attributes'] = array_map(static function (): string {
-                        return 'attribute';
-                    }, $leaf['attributes']);
+                    foreach (['alt', 'title', 'width', 'height', 'loading'] as $attribute) {
+                        if (array_key_exists($attribute, $leaf['attributes'])) {
+                            $clean['attributes'][$attribute] = $attribute;
+                        }
+                    }
                 }
                 $keys['key-' . $n] = $clean;
             }
-            $slice['keys'] = $keys;
-            $name = (string) preg_replace('/[^A-Za-z0-9_-]/', '_', $id . '-' . $language);
-            file_put_contents($out . '/slice-' . $name . '.json', json_encode($slice, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
+            $bundleName = $ids[(string) $id] ?? 'b0';
+            $language = $tag((string) $language);
+            $write($out . '/slice-' . $bundleName . '-' . $language . '.json', ['schemaVersion' => 1, 'bundle' => $bundleName, 'locale' => $language, 'keys' => $keys]);
             $count++;
         }
     }

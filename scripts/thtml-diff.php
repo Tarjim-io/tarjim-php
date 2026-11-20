@@ -20,7 +20,13 @@ use Tarjim\Lookup\Placeholders;
 use Tarjim\Store\LocalDisk;
 use Tarjim\Store\Store;
 
-require dirname(__DIR__) . '/vendor/autoload.php';
+// From a checkout of this package, or from vendor/tarjim/tarjim-php/scripts in an app.
+foreach ([dirname(__DIR__) . '/vendor/autoload.php', dirname(__DIR__, 3) . '/autoload.php'] as $autoload) {
+    if (is_file($autoload)) {
+        require $autoload;
+        break;
+    }
+}
 
 $options = getopt('', ['dir:', 'legacy', 'bundle:']);
 $dir = is_array($options) && isset($options['dir']) && is_string($options['dir']) ? $options['dir'] : '';
