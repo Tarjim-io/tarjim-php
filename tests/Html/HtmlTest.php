@@ -297,8 +297,7 @@ final class HtmlTest extends LookupCase
     {
         $out = $this->html('<b class="{c}">x</b>', ['c' => 'y" onclick="alert(1)']);
 
-        self::assertDoesNotMatchRegularExpression('/<b\s[^>]*\bonclick=/', $out);
-        self::assertStringStartsWith('<b class="', $out);
+        self::assertMatchesRegularExpression('/^<b class="[^"]*">x<\/b>$/', $out, 'one attribute, the class');
     }
 }
 
