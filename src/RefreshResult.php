@@ -23,10 +23,14 @@ final class RefreshResult
     /** @var int|null seconds until a check may run again */
     public $retryAfter;
 
-    public function __construct(string $status, string $message = '', ?int $retryAfter = null)
+    /** @var bool a complete copy is held after this refresh, whatever its outcome */
+    public $copyHeld;
+
+    public function __construct(string $status, string $message = '', ?int $retryAfter = null, bool $copyHeld = false)
     {
         $this->status = $status;
         $this->message = $message;
         $this->retryAfter = $retryAfter;
+        $this->copyHeld = $copyHeld;
     }
 }
