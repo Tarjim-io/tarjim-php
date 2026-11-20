@@ -56,9 +56,12 @@ vendor/bin/tarjim-php refresh --config=config/tarjim.php --require-copy
 ## The local copy
 
 - **One folder per server**, outside the web root, holding one distribution. Two servers may differ
-  for a few minutes after a promote.
-- **Run `refresh` as the user the site runs as.** A copy written by root cannot be updated by the
-  web server; `refresh` checks the folder is writable first and answers `misconfigured` if not.
+  for a few minutes after a promote. In containers the folder lives as long as the container: run
+  `refresh` when the container starts, or during the image build into the same folder.
+- **Run `refresh` as the user the site runs as** (for php-fpm usually `www-data`). A copy written by
+  root cannot be updated by the web server; `refresh` checks the folder is writable first and
+  answers `misconfigured` if not. Under php-fpm, `getenv()` sees the environment only with
+  `clear_env = no`; otherwise put the values in the config file from your own secret store.
 - **Atomic.** A release is installed only when every file is verified, and the pointer to it is
   written last. A reader sees the old release or the new one, never a mix. A failed refresh never
   removes what is held.
@@ -90,10 +93,10 @@ successful check within `staleAfter`), 2 bad config, 4 nothing held.
 | Key | Default | Meaning |
 |---|---|---|
 | `dir` | — | Absolute folder for the copy. Needed to read and to refresh. |
-| `deliveryUrl` | — | The distribution's delivery URL, used exactly as given. https (http only on localhost). |
+| `deliveryUrl` | — | The distribution's delivery URL, `https://…/delivery/<id>/meta`, used exactly as given: https (http only on localhost), no query, fragment or trailing slash. |
 | `key` | — | The delivery key. Needed only to refresh. |
 | `bundle` | `'default'` | The bundle lookups read. A custom bundle of that name first, then a namespace. It must be a **flat** bundle. |
-| `locale` | — | The language lookups serve. |
+| `locale` | — | The language lookups serve. With no `locale`, no `fallbackLocale` and no per-call locale, lookups answer with the key text. |
 | `fallbackLocale` | — | Served when `locale` has no text in the bundle. |
 | `keyCase` | `'exact'` | `'lower'` folds key names on both sides. |
 | `legacyPercentPlaceholders` | `false` | Also fill `%%name%%`, as the old client did. |
@@ -103,8 +106,9 @@ successful check within `staleAfter`), 2 bad config, 4 nothing held.
 | `strict` | `false` | Throw on a bad config instead of degrading. |
 | `apiUrl`, `apiKey` | — | For export pulls only. |
 
-`Client::create()` never throws (unless `strict`): a bad config makes `refresh()` answer
-`misconfigured` and is logged; lookups answer with the key text.
+`Client::create()` never throws (unless `strict`). A bad `dir`, `deliveryUrl` or `key` makes
+`refresh()` answer `misconfigured`; a bad optional value falls back to its default. Both are logged,
+and lookups answer with the key text.
 
 ## Lookups
 
@@ -169,6 +173,8 @@ vendor/bin/tarjim-php export --config=config/tarjim.php --project=12 --bundle=34
 - A zip entry that could land outside the folder, a link, an encrypted entry or an export larger
   than `maxBytes` (64 MiB, unpacked) refuses the whole export.
 - Options: `timeout` (300 s), `poll` (2 s), `maxBytes`, `adoptExisting`.
+- `tarjim-php export` exits 0 when files were written, 1 when the pull failed, 2 on a bad config or
+  bad arguments.
 
 ## Moving from `joylab/tarjim-php-client`
 

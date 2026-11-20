@@ -9,7 +9,7 @@ package serves the release a stage points at, from a folder that you refresh whe
 | Before | Now |
 |---|---|
 | Live, unreleased content | The release promoted to the stage your key reads (`dev` or `prod`) |
-| A page request could call Tarjim when the cache was over an hour old | Pages never call Tarjim; `refresh` runs from your deploy or cron |
+| A page request could call Tarjim: on an empty cache, and when the cache was older than 15 minutes (1.1.x) or an hour (1.2.x) | Pages never call Tarjim; `refresh` runs from your deploy or cron |
 | `die()` when the cache was empty and the fetch failed | Lookups answer with the key text; `refresh` exits non-zero |
 | Cache files pre-created with `chmod 777`, no locking, inside the web root (marketing site) | One folder you choose, outside the web root, written atomically by the site's own user |
 | Config: a PHP file that sets variables | A PHP file that returns an array |
@@ -17,7 +17,7 @@ package serves the release a stage points at, from a folder that you refresh whe
 | Namespaces `default` + `additional_namespaces` | One flat bundle per old namespace; the old `namespace` option selects a bundle |
 | Keys lower-cased before lookup | `'keyCase' => 'lower'` (the default is exact) |
 | `%%name%%` filled from `mappings` | `'legacyPercentPlaceholders' => true`; `{name}` always works |
-| `<span data-tid=…>` around every `_T` value | Gone. Nothing on Tarjim v3 reads `data-tid`. |
+| `<span data-tid=…>` around `_T` values (not for missing keys or `skip_*` calls), for the v1 Chrome extension's in-place editing | Gone, with that extension feature. Nothing on Tarjim v3 reads `data-tid`. |
 | `_T` removed `<script>` and little else | `_T` keeps only safe tags and attributes (see `tHtml()` in the README) |
 | `_TM` printed `src=… data-tid=…` unquoted, server attributes unescaped | `_TM` prints quoted, escaped attributes; https images only |
 | `_TF`, `_TDateTime`, write and admin methods | Removed (no callers). Management commands come in a later version. |
@@ -30,7 +30,15 @@ Behaviour you may notice:
   the last).
 - A value of `"0"` is a value (it fell back to the key).
 - A key missing in the chosen language answers with the key text, as before; there is still no
-  per-key fallback to another language.
+  per-key fallback to another language. But a language that is not released at all is now served
+  in `fallbackLocale` when you set one (it was the key text).
+- **`_TS` used to strip tags; now it returns the value as written.** A value that holds HTML shows
+  its markup wherever `_TS` is printed: use `_T` for those keys, or strip them in Tarjim.
+- **`mappings` values used to be inserted raw.** `_T` now escapes them, and keeps an `href` only if
+  the final URL is https, mailto or tel: a mapped link that is relative or `http://` loses its
+  `href`. Pass absolute https URLs. The `thtml-diff.php` check below fills placeholders with an https
+  sample, so it cannot show this case.
+- An empty key answers `''` (it was `null`).
 
 ## Steps
 
@@ -45,7 +53,9 @@ Behaviour you may notice:
    composer require tarjim/tarjim-php
    ```
 
-3. **Config file** (`config/tarjim.php`), returning an array:
+3. **Config file**, returning an array. On the Laravel site, replace the old wrapper's
+   `config/tarjim.php` (or use another name, such as `config/tarjim-delivery.php`); its old keys mean
+   nothing here:
 
    ```php
    <?php
@@ -61,12 +71,18 @@ Behaviour you may notice:
    ```
 
 4. **Copy the helper file** [`examples/tarjim-helpers.php`](../examples/tarjim-helpers.php) into your
-   app and load it at boot, then give it a client and set the language wherever the app switches it:
+   app and load it after Composer's autoloader (Laravel: add it to `autoload.files` in
+   `composer.json`; CakePHP: below), then give it a client and set the language wherever the app
+   switches it:
 
    ```php
    tarjim_use(Tarjim\Client::create(require __DIR__ . '/config/tarjim.php'));
    tarjim_language('fr');                    // a middleware; before rendering each email
+   _TS('home_endpoint', ['locale' => 'ar']); // one call in another language (route slugs per locale)
    ```
+
+   In a long-running worker (Octane, a queue), `tarjim_language(null)` at the end of each request
+   or job, so the next one does not inherit it. With no client set the helpers answer with the key.
 
 5. **Review the call sites the helpers change:**
    - **`_TS` now returns plain, unescaped text.** Each call site escapes once for where the text
@@ -95,8 +111,12 @@ Behaviour you may notice:
    Illuminate\Support\Facades\Schedule::exec('vendor/bin/tarjim-php refresh --config=config/tarjim.php')->everyFiveMinutes();
    ```
 
-   An old "update the cache" URL can call `tarjim()->refresh()` instead; it reaches Tarjim at most
-   once a minute however often it is called.
+   An old "update the cache" URL can call `tarjim_use()->refresh()` instead; it reaches Tarjim at
+   most once a minute however often it is called.
+
+   `refresh` checks that the configured `bundle` exists and is flat. A second bundle you read with
+   `'namespace' => …` (Panda7's `rccaq-backend`) is not checked: create it flat, and check it once
+   with `tarjim-php status` or a lookup after the first refresh.
 7. **Check what `_T` will now strip.** Run, against a folder refreshed with your key:
 
    ```bash
@@ -130,6 +150,7 @@ files instead, use an export pull (`tarjim-php export`, see the README).
 
 ```php
 // app/config/bootstrap.php
+require_once ROOT . DS . 'vendor' . DS . 'autoload.php';
 require_once APP . 'vendors' . DS . 'tarjim-helpers.php';
 tarjim_use(Tarjim\Client::create(require CONFIGS . 'tarjim.php'));
 ```

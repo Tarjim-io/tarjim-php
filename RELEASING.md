@@ -17,8 +17,9 @@ after.
 
 ## The staging check
 
-Runs a real refresh against a stage into a temporary folder, reads the copy back, and removes the
-folder. It is the only part of this repository that calls a Tarjim server, and it is never run by CI.
+Runs a real refresh against a stage into a temporary folder (readable by you only), reads the copy
+back, and removes the folder. It is the only script here that calls a Tarjim server; tests and CI
+never do.
 
 ```bash
 read -rs TARJIM_KEY && export TARJIM_KEY     # the key is read from the environment only
@@ -29,11 +30,14 @@ unset TARJIM_KEY
 It prints the serving mode, the release, the bundle's languages and what `tHtml()` would change, and
 exits 0 when the release installed and reads back, 1 when something failed, 2 on bad arguments.
 
-`--record=<dir>` also writes the stage's answers as test fixtures, with the signed query's values,
-every key name and every value replaced. Read them before committing: this repository is public.
+`--record=<dir>` also writes the stage's answers as test fixtures, rebuilt from an allow-list of
+fields: the signed query's values, URL queries, the distribution name, bundle and namespace names,
+key names, values and attribute names are replaced; hashes, sizes, language tags and the release id
+are kept. Read them before committing: this repository is public.
 
 ## Cutting a release
 
 1. CI is green on `main` for PHP 7.4, 8.2 and 8.4.
-2. Tag: `git tag -s vX.Y.Z-alpha.N -m "vX.Y.Z-alpha.N" && git push origin vX.Y.Z-alpha.N`.
-3. Packagist picks the tag up from the repository hook.
+2. `Version::SDK` in `src/Version.php` names the version being tagged (it is sent to the server).
+3. Tag: `git tag -s vX.Y.Z-alpha.N -m "vX.Y.Z-alpha.N" && git push origin vX.Y.Z-alpha.N`.
+4. Packagist picks the tag up from the repository hook.
