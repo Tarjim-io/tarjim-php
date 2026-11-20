@@ -14,6 +14,16 @@ final class Languages
     }
 
     /**
+     * The entry of `$available` that serves `$wanted`, spelled as `$available` spells it, or null.
+     *
+     * @param list<string> $available
+     */
+    public static function match(string $wanted, array $available, ?string $fallback = null): ?string
+    {
+        throw new \LogicException('not implemented');
+    }
+
+    /**
      * The first language of the chain the bundle has a file for: the exact tag, its base language,
      * then the same two for the fallback. That one is served whole, even where it lacks the key.
      *
