@@ -72,6 +72,10 @@ final class MatchLocaleTest extends TestCase
         yield 'pa-PK is Arabic' => ['pa-PK', ['pa', 'pa-Arab'], null, 'pa-Arab'];
         yield 'explicit default script' => ['en-Latn-GB', ['en'], null, 'en'];
         yield 'ar-Arab' => ['ar-Arab', ['ar'], null, 'ar'];
+        // an extension is dropped, as Intl.Locale's baseName drops it
+        yield 'unicode extension' => ['en-u-ca-gregory', ['en'], null, 'en'];
+        yield 'private use' => ['fr-CA-x-mine', ['fr-CA'], null, 'fr-CA'];
+        yield 'released with an extension' => ['de', ['de-u-co-phonebk'], null, 'de-u-co-phonebk'];
     }
 
     /**
