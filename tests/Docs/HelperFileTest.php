@@ -119,4 +119,54 @@ final class HelperFileTest extends LookupCase
         self::assertSame([], _TD('home_endpoint'));
         self::assertSame('', _TM('logo'));
     }
+
+    public function testTmKeepsOnlyImageAttributesFromTheCaller(): void
+    {
+        tarjim_language('ar');
+        $attributes = _TM('logo', ['onerror' => 'alert(1)', 'style' => 'x', 'srcset' => '//e', 'src' => 'javascript:1', "alt\n" => 'n', 'width' => '10', 'class' => 'logo']);
+
+        self::assertSame(1, preg_match_all('/\bsrc=/', $attributes));
+        foreach (['onerror', 'style', 'srcset', "\n"] as $bad) {
+            self::assertStringNotContainsString($bad, $attributes);
+        }
+        self::assertStringContainsString('width="10"', $attributes);
+        self::assertStringContainsString('class="logo"', $attributes);
+    }
+
+    public function testTheLanguageCanBeCleared(): void
+    {
+        tarjim_language('fr');
+        tarjim_language(null);
+
+        self::assertNull(tarjim_language());
+    }
+
+    public function testTseoOfAnUnknownKindEscapesTheKey(): void
+    {
+        self::assertSame('&lt;b&gt;k&lt;/b&gt;', _TSEO('<b>k</b>', ['SEO' => 'unknown']));
+    }
+
+    public function testHelpersTolerateOptionsThatAreNotArrays(): void
+    {
+        try {
+            self::assertSame('Tom & Jerry\'s "page"', _TS('title', 'x'));
+            self::assertSame('Hello <b>%%name%%</b>', _T('greeting', ['mappings' => 'x']));
+        } catch (\Throwable $error) {
+            self::fail('a helper threw ' . get_class($error));
+        }
+    }
+
+    public function testWithoutAClientHelpersAnswerWithTheKey(): void
+    {
+        try {
+            tarjim_use(null);
+
+            self::assertSame('title', _TS('title'));
+            self::assertSame('&lt;b&gt;', _T('<b>'));
+            self::assertSame('', _TM('logo'));
+            self::assertSame([], _TD('title'));
+        } catch (\Throwable $error) {
+            self::fail('a helper threw ' . get_class($error));
+        }
+    }
 }

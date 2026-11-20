@@ -102,4 +102,59 @@ final class StagingCheckTest extends StoreCase
             self::assertDoesNotMatchRegularExpression('/Signature=(?!REDACTED)/', $bytes, basename($file));
         }
     }
+
+    public function testRecordedFixturesKeepNoLabelsOrExtraFields(): void
+    {
+        $server = new TestServer();
+        $release = (new ReleaseBuilder('7'))
+            ->slice('ns1', ['type' => 'namespace', 'name' => 'AcmeBundle', 'layout' => 'flat', 'namespaces' => ['AcmeNamespace']], 'en', [
+                'schemaVersion' => 1, 'bundle' => 'ns1', 'locale' => 'en', 'projectName' => 'AcmeProject',
+                'keys' => ['hello' => ['id' => '1', 'value' => 'Hello', 'type' => 'AcmeType', 'attributes' => ['data-acme' => 'x', 'alt' => 'AcmeAlt'], 'note' => 'AcmeNote']],
+            ]);
+        $url = $release->serveOrigin($server);
+        $server->route('/delivery/dst_test/meta', \Tarjim\Tests\Support\Route::json(200, $release->meta([
+            'distribution' => 'AcmeDistribution',
+            'manifestUrl' => 'released/7/manifest',
+        ])));
+        $out = $this->root . '/fixtures';
+        self::runCheck(['--delivery-url=' . $url, '--bundle=AcmeBundle', '--record=' . $out], ['TARJIM_KEY' => ReleaseBuilder::KEY]);
+        $server->stop();
+
+        $all = '';
+        foreach (glob($out . '/*') ?: [] as $file) {
+            $all .= (string) file_get_contents($file);
+        }
+        self::assertNotSame('', $all);
+        foreach (['Acme', 'Hello', 'data-acme'] as $label) {
+            self::assertStringNotContainsString($label, $all, $label . ' survived recording');
+        }
+    }
+
+    public function testRecordedUrlsKeepNoQuery(): void
+    {
+        $server = new TestServer();
+        $release = (new ReleaseBuilder('7'))->flat('ns1', 'namespace', 'default', 'en', ['hello' => 'Hello']);
+        $url = $release->serveOrigin($server);
+        $server->route('/delivery/dst_test/meta', \Tarjim\Tests\Support\Route::json(200, $release->meta([
+            'manifestUrl' => 'released/7/manifest?Signature=SIGSECRET&Expires=1',
+        ])));
+        $server->route('/delivery/dst_test/released/7/manifest', \Tarjim\Tests\Support\Route::answer(200, $release->manifestBytes()));
+        $out = $this->root . '/fixtures';
+        self::runCheck(['--delivery-url=' . $url, '--record=' . $out], ['TARJIM_KEY' => ReleaseBuilder::KEY]);
+        $server->stop();
+
+        self::assertStringNotContainsString('SIGSECRET', (string) @file_get_contents($out . '/meta.json'));
+    }
+
+    public function testServerTextIsPrintedWithoutControlCharacters(): void
+    {
+        $server = new TestServer();
+        $release = (new ReleaseBuilder('7'))->flat('ns1', 'namespace', 'default', 'en', ['hello' => 'Hello']);
+        $url = $release->serveOrigin($server);
+        $server->route('/delivery/dst_test/meta', \Tarjim\Tests\Support\Route::json(200, $release->meta(['distribution' => "dst\x1b[2Jcleared"])));
+        [, $out] = self::runCheck(['--delivery-url=' . $url], ['TARJIM_KEY' => ReleaseBuilder::KEY]);
+        $server->stop();
+
+        self::assertStringNotContainsString("\x1b", $out);
+    }
 }
