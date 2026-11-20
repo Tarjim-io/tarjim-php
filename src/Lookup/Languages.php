@@ -6,7 +6,9 @@ namespace Tarjim\Lookup;
 
 final class Languages
 {
-    private const TAG = '/^([a-z]{2,3}|[a-z]{5,8})(?:-([a-z]{4}))?(?:-([a-z]{2}|[0-9]{3}))?((?:-(?:[a-z0-9]{5,8}|[0-9][a-z0-9]{3}))*)$/D';
+    // Extensions (`-u-ca-gregory`) and private use (`-x-…`) are accepted and dropped, as Intl.Locale's
+    // baseName drops them, so both SDKs read such a tag as the same language.
+    private const TAG = '/^([a-z]{2,3}|[a-z]{5,8})(?:-([a-z]{4}))?(?:-([a-z]{2}|[0-9]{3}))?((?:-(?:[a-z0-9]{5,8}|[0-9][a-z0-9]{3}))*)(?:-[0-9a-wy-z](?:-[a-z0-9]{2,8})+)*(?:-x(?:-[a-z0-9]{1,8})+)?$/D';
 
     private const PARSED_LIMIT = 512;
 
