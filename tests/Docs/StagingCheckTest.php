@@ -157,4 +157,18 @@ final class StagingCheckTest extends StoreCase
 
         self::assertStringNotContainsString("\x1b", $out);
     }
+
+    public function testAMisconfiguredRefreshStopsWithTheBundlesTheReleaseHas(): void
+    {
+        $server = new TestServer();
+        $release = (new ReleaseBuilder('10005'))->flat('cb1', 'custom', 'spa', 'en', ['hello' => 'Hello']);
+        $url = $release->serveOrigin($server);
+        [$code, $out] = self::runCheck(['--delivery-url=' . $url], ['TARJIM_KEY' => ReleaseBuilder::KEY]);
+        $server->stop();
+
+        self::assertSame(1, $code);
+        self::assertStringContainsString('it has: spa', $out);
+        self::assertStringNotContainsString('holds release', $out);
+        self::assertStringNotContainsString('no languages', $out);
+    }
 }

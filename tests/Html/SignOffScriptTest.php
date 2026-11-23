@@ -45,7 +45,7 @@ final class SignOffScriptTest extends LookupCase
 
         self::assertSame(1, $code, $err);
         self::assertSame(['ar/unsafe', 'en/styled', 'en/unsafe'], $keys);
-        self::assertStringContainsString('6 values checked, 3 would change', $err);
+        self::assertStringContainsString('6 values checked, 3 change what a reader sees', $err);
     }
 
     public function testNothingToChangeIsZero(): void
@@ -63,5 +63,43 @@ final class SignOffScriptTest extends LookupCase
 
         self::assertSame(2, $code);
         self::assertDirectoryDoesNotExist($this->root . '/empty');
+    }
+
+    /** Values from the first real run whose tHtml() output differs from the stored text but displays the same. */
+    private function renderIdentical(): ReleaseBuilder
+    {
+        return (new ReleaseBuilder('7'))->flat('ns1', 'namespace', 'default', 'fr', [
+            'search' => 'Search & Replace',
+            'archive' => 'l&#39;archive',
+            'apos' => 'l&apos;archive',
+            'greater' => 'a > b',
+            'filepond' => 'Drag & Drop your files or <span class="filepond--label-action">Browse</span>',
+            'dropped' => '<font color="red">red</font> text',
+        ]);
+    }
+
+    public function testListsOnlyChangesAReaderWouldSee(): void
+    {
+        $this->installed($this->renderIdentical());
+        [$code, $out, $err] = $this->runScript(['--dir=' . $this->dir]);
+        $keys = array_map(static function (string $line): string {
+            return explode("\t", $line)[2];
+        }, array_values(array_filter(explode("\n", $out))));
+
+        self::assertSame(1, $code, $err);
+        self::assertSame(['dropped'], $keys);
+        self::assertStringContainsString('6 values checked, 1 change what a reader sees', $err);
+    }
+
+    public function testAllListsEveryTextualDifference(): void
+    {
+        $this->installed($this->renderIdentical());
+        [, $out] = $this->runScript(['--dir=' . $this->dir, '--all']);
+        $keys = array_map(static function (string $line): string {
+            return explode("\t", $line)[2];
+        }, array_values(array_filter(explode("\n", $out))));
+        sort($keys);
+
+        self::assertSame(['apos', 'archive', 'dropped', 'filepond', 'greater', 'search'], $keys);
     }
 }

@@ -137,4 +137,16 @@ final class BundleTest extends LookupCase
         self::assertStringNotContainsString('nested', $result->message);
         self::assertStringContainsStringIgnoringCase('flat', $result->message);
     }
+
+    public function testAMissingConfiguredBundleIsReportedWithTheBundlesTheReleaseHas(): void
+    {
+        $release = (new ReleaseBuilder('10005'))
+            ->flat('cb1', 'custom', 'spa', 'en', ['hello' => 'Hello'])
+            ->flat('ns2', 'namespace', 'emails', 'en', ['hello' => 'Hello']);
+        $this->serve($release);
+        $result = $this->refresh();
+
+        self::assertSame(RefreshResult::MISCONFIGURED, $result->status);
+        self::assertStringContainsString("the configured bundle 'default' is not in release 10005; it has: emails, spa", $result->message);
+    }
 }
