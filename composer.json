@@ -16,7 +16,8 @@
     "suggest": {
         "ext-dom": "Needed by tHtml().",
         "ext-mbstring": "Needed by keyCase 'lower'.",
-        "ext-zip": "Needed by export pulls."
+        "ext-zip": "Needed by export pulls.",
+        "ext-intl": "Lets export pulls tell apart file names that differ only in Unicode form."
     },
     "autoload": {
         "psr-4": {

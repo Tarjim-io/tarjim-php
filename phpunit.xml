@@ -21,6 +21,9 @@
         <testsuite name="html">
             <directory>tests/Html</directory>
         </testsuite>
+        <testsuite name="export">
+            <directory>tests/Export</directory>
+        </testsuite>
         <testsuite name="cli">
             <directory>tests/Cli</directory>
         </testsuite>

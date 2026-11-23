@@ -6,6 +6,7 @@ namespace Tarjim\Cli;
 
 use Tarjim\Client;
 use Tarjim\Config;
+use Tarjim\Export\ExportResult;
 use Tarjim\RefreshResult;
 
 final class Application
@@ -18,7 +19,8 @@ final class Application
 
     private const USAGE = "usage:\n"
         . "  tarjim-php refresh --config=<file> [--wait=<seconds>] [--require-copy]\n"
-        . "  tarjim-php status --config=<file>\n";
+        . "  tarjim-php status --config=<file>\n"
+        . "  tarjim-php export --config=<file> --project=<id> --bundle=<id> --out=<absolute folder>\n";
 
     /**
      * @param list<string> $argv without the program name
@@ -29,6 +31,9 @@ final class Application
     {
         $command = null;
         try {
+            if (($argv[0] ?? null) === 'export') {
+                return $this->export(array_slice($argv, 1), $out, $err);
+            }
             $parsed = $this->parse($argv);
             if ($parsed === null) {
                 fwrite($err, self::USAGE);
@@ -57,10 +62,69 @@ final class Application
 
                 return self::FAILED;
             }
+            if (($argv[0] ?? null) === 'export') {
+                fwrite($err, "tarjim-php: the export failed unexpectedly\n");
+
+                return self::FAILED;
+            }
             fwrite($err, "tarjim-php: the configuration could not be used\n");
 
             return self::MISCONFIGURED;
         }
+    }
+
+    /**
+     * @param list<string> $args the arguments after the command name
+     * @param resource $out
+     * @param resource $err
+     */
+    private function export(array $args, $out, $err): int
+    {
+        $options = ['config' => null, 'project' => null, 'bundle' => null, 'out' => null];
+        foreach ($args as $arg) {
+            if (preg_match('/^--([a-z-]+)=(.*)$/s', $arg, $m) !== 1 || !array_key_exists($m[1], $options)) {
+                return $this->usage($err, 'unknown or malformed argument: ' . (strpos($arg, '=') === false ? $arg : substr($arg, 0, (int) strpos($arg, '='))));
+            }
+            $options[$m[1]] = $m[2];
+        }
+        foreach (['project', 'bundle'] as $name) {
+            $value = $options[$name];
+            if ($value === null || preg_match('/^[0-9]{1,9}$/', $value) !== 1 || (int) $value < 1) {
+                return $this->usage($err, '--' . $name . ' must be a positive integer');
+            }
+        }
+        if ($options['out'] === null || preg_match('#^(/|[A-Za-z]:[\\\\/])#', $options['out']) !== 1) {
+            return $this->usage($err, '--out must be an absolute path');
+        }
+        if ($options['config'] === null || $options['config'] === '') {
+            return $this->usage($err, '--config is required');
+        }
+
+        $config = $this->loadConfig($options['config']);
+        if ($config === null) {
+            fwrite($err, "tarjim-php: the config file could not be loaded or did not return an array\n");
+
+            return self::MISCONFIGURED;
+        }
+        $config['strict'] = false;
+        $result = Client::create($config)->exports()->pull((int) $options['project'], (int) $options['bundle'], $options['out']);
+
+        if ($result->status === ExportResult::UPDATED) {
+            fwrite($out, $result->status . ': ' . $result->message . "\n");
+
+            return self::OK;
+        }
+        fwrite($err, $result->status . ': ' . $result->message . "\n");
+
+        return $result->status === ExportResult::MISCONFIGURED ? self::MISCONFIGURED : self::FAILED;
+    }
+
+    /** @param resource $err */
+    private function usage($err, string $problem): int
+    {
+        fwrite($err, 'tarjim-php: ' . $problem . "\n" . self::USAGE);
+
+        return self::MISCONFIGURED;
     }
 
     /**

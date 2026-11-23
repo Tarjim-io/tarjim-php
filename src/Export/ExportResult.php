@@ -6,10 +6,17 @@ namespace Tarjim\Export;
 
 final class ExportResult
 {
-    /** @var string */
+    public const UPDATED = 'updated';
+    public const FAILED = 'failed';
+    public const MISCONFIGURED = 'misconfigured';
+
+    /** @var string one of the constants above */
     public $status;
 
-    /** @var list<string> */
+    /** @var int|null the export this pull installed or tried */
+    public $exportId;
+
+    /** @var list<string> paths relative to the target folder */
     public $written = [];
 
     /** @var list<string> */
