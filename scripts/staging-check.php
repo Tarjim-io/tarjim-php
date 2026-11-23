@@ -96,7 +96,8 @@ try {
         $result = $client->refresh();
         $say('refresh: ' . $result->status . ($result->message !== '' ? ' — ' . $result->message : ''));
         if ($result->status !== RefreshResult::UPDATED || !$result->copyHeld) {
-            $ok = false;
+            // Nothing was installed, so reading the copy back would only add misleading lines.
+            exit(1);
         }
         $status = $client->status();
         if ($status->releaseId !== $meta->releaseId) {
