@@ -4,7 +4,7 @@ All notable changes to this package are listed here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/); before `1.0.0` the API may change in any release.
 
-## [0.1.0-alpha.1] — unreleased
+## [0.1.0-alpha.1] - 2026-11-23
 
 The first version.
 
