@@ -66,4 +66,15 @@ final class ReadmeTest extends TestCase
             self::assertContains($key, array_merge($known, $options), $document . " uses '" . $key . "' =>");
         }
     }
+
+    public function testTheReadmeNamesTheStageTheVersionIsIn(): void
+    {
+        self::assertMatchesRegularExpression('/^\d+\.\d+\.\d+(-(alpha|beta)\.\d+)?$/', \Tarjim\Version::SDK);
+        preg_match('/-(alpha|beta)\./', \Tarjim\Version::SDK, $stage);
+        $readme = (string) file_get_contents(dirname(__DIR__, 2) . '/README.md');
+
+        self::assertSame('alpha', $stage[1] ?? null, 'published as alpha until a real site runs on the package');
+        self::assertStringContainsString('**' . ucfirst($stage[1]) . '.**', $readme);
+    }
 }
+
