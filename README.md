@@ -8,8 +8,12 @@ step, a cron job or a command.
 
 It can also pull a bundle export (for example Laravel PHP language files) into a folder.
 
+## Status
+
 **Alpha.** Versions are `-alpha.N` until a real site runs on the package, then `-beta.N` until
-the release checklist in [RELEASING.md](RELEASING.md) is met.
+the release checklist in [RELEASING.md](RELEASING.md) is met. The API may change before `1.0.0`:
+pin the version (`"tarjim/tarjim-php": "^0.1@alpha"`, or an exact tag) and read the
+[changelog](CHANGELOG.md) before upgrading.
 
 ## Requirements
 
@@ -17,8 +21,10 @@ the release checklist in [RELEASING.md](RELEASING.md) is met.
 - `ext-dom` for `tHtml()`, `ext-mbstring` for `keyCase: 'lower'`, `ext-zip` for export pulls.
   `ext-intl` lets export pulls tell apart file names that differ only in Unicode form.
 
+## Install
+
 ```bash
-composer require tarjim/tarjim-php
+composer require "tarjim/tarjim-php:^0.1@alpha"
 ```
 
 ## Quick start
@@ -151,6 +157,21 @@ if ($status->stale) {
 }
 ```
 
+## Errors
+
+- **Lookups never throw.** A missing key, an empty value, a bad config or a missing or corrupt copy
+  answers with the key text (`t()`, `tHtml()`), `false` (`has()`), `null` (`image()`) or `[]`
+  (`locales()`).
+- **`Client::create()` never throws**, unless you pass `'strict' => true`; then a bad config throws
+  `InvalidArgumentException`, whose message never contains the key.
+- **`refresh()` never throws either.** It returns a `RefreshResult` whose `status` says what happened
+  and whose `message` says why; the command line maps it to the [exit codes](#refresh-exit-codes).
+- **Failures are logged** through the `logger` you configure: a bad config at `create()` and a
+  misconfigured refresh as `error`, a failed refresh as `warning`. Lookups log only a missing
+  extension (`ext-dom`, `ext-mbstring`), once per client.
+- **An export pull** returns an `ExportResult` with `status` `updated`, `failed` or `misconfigured`
+  and a `message`; a failed pull leaves the folder as it was.
+
 ## Export pulls
 
 Pull a bundle export (any format, including Laravel PHP files) into a folder:
@@ -181,6 +202,14 @@ vendor/bin/tarjim-php export --config=config/tarjim.php --project=12 --bundle=34
 See [docs/moving-from-tarjim-php-client.md](docs/moving-from-tarjim-php-client.md), with a helper
 file that keeps `_T`, `_TS`, `_TM`, `_TD` and `_TSEO` working: [examples/tarjim-helpers.php](examples/tarjim-helpers.php).
 
+## Documentation & support
+
+- Questions and bugs: [GitHub issues](https://github.com/Tarjim-io/tarjim-php/issues).
+- **Security issues: report them privately to support@tarjim.io**, not in a public issue. See
+  [SECURITY.md](SECURITY.md).
+- [Moving from `joylab/tarjim-php-client`](docs/moving-from-tarjim-php-client.md),
+  [what changed in each version](CHANGELOG.md), and [how releases are made](RELEASING.md).
+
 ## Development
 
 ```bash
@@ -193,4 +222,4 @@ Tests never call a Tarjim server.
 
 ## Licence
 
-MIT
+MIT; see [LICENSE](LICENSE).

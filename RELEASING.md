@@ -38,6 +38,7 @@ are kept. Read them before committing: this repository is public.
 ## Cutting a release
 
 1. CI is green on `main` for PHP 7.4, 8.2 and 8.4.
-2. `Version::SDK` in `src/Version.php` names the version being tagged (it is sent to the server).
+2. `Version::SDK` in `src/Version.php` names the version being tagged (it is sent to the server),
+   and `CHANGELOG.md` has its entry with "unreleased" replaced by the release date.
 3. Tag: `git tag -s vX.Y.Z-alpha.N -m "vX.Y.Z-alpha.N" && git push origin vX.Y.Z-alpha.N`.
 4. Packagist picks the tag up from the repository hook.
