@@ -18,6 +18,9 @@
         <testsuite name="lookup">
             <directory>tests/Lookup</directory>
         </testsuite>
+        <testsuite name="html">
+            <directory>tests/Html</directory>
+        </testsuite>
         <testsuite name="cli">
             <directory>tests/Cli</directory>
         </testsuite>
