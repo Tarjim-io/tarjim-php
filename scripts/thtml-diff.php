@@ -48,7 +48,12 @@ if ($index === null) {
     exit(2);
 }
 
+// What a reader sees, roughly as a browser reads it: entities decoded, except that a `<` meant as
+// text (escaped, or not followed by a letter, `/`, `!` or `?`) stays distinct from one that starts a
+// tag. Otherwise stored `x<y>z`, shown as "xz", would compare equal to tHtml()'s "x&lt;y&gt;z".
 $seen = static function (string $html): string {
+    $html = (string) preg_replace('/&(?:lt|#0*60|#x0*3c);|<(?![A-Za-z\/!?])/i', "\u{E000}", $html);
+
     return html_entity_decode($html, ENT_QUOTES | ENT_HTML5, 'UTF-8');
 };
 $show = static function (string $text): string {
