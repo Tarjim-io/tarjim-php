@@ -50,7 +50,7 @@ Behaviour you may notice:
 
    ```bash
    composer remove joylab/tarjim-php-client joylab/tarjim-laravel-client
-   composer require tarjim/tarjim-php
+   composer require "tarjim/tarjim-php:^0.1@alpha"
    ```
 
 3. **Config file**, returning an array. On the Laravel site, replace the old wrapper's
