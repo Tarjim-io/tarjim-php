@@ -1,7 +1,6 @@
 # Releasing
 
-Versions are tagged `vX.Y.Z-alpha.N` (then `-beta.N`) until every item below is done; `1.0.0` comes
-after.
+Published versions are tagged `vX.Y.Z-beta.N` until every item below is done; `1.0.0` comes after.
 
 ## Before 1.0.0
 
@@ -39,5 +38,5 @@ are kept. Read them before committing: this repository is public.
 
 1. CI is green on `main` for PHP 7.4, 8.2 and 8.4.
 2. `Version::SDK` in `src/Version.php` names the version being tagged (it is sent to the server).
-3. Tag: `git tag -s vX.Y.Z-alpha.N -m "vX.Y.Z-alpha.N" && git push origin vX.Y.Z-alpha.N`.
+3. Tag: `git tag -s vX.Y.Z-beta.N -m "vX.Y.Z-beta.N" && git push origin vX.Y.Z-beta.N`.
 4. Packagist picks the tag up from the repository hook.

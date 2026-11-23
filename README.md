@@ -8,8 +8,8 @@ step, a cron job or a command.
 
 It can also pull a bundle export (for example Laravel PHP language files) into a folder.
 
-**Pre-release.** Versions are `-alpha.N` until the release checklist in [RELEASING.md](RELEASING.md)
-is met.
+**Beta.** Versions are `-beta.N` until the release checklist in [RELEASING.md](RELEASING.md) is
+met.
 
 ## Requirements
 
