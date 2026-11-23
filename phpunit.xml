@@ -24,6 +24,9 @@
         <testsuite name="export">
             <directory>tests/Export</directory>
         </testsuite>
+        <testsuite name="docs">
+            <directory>tests/Docs</directory>
+        </testsuite>
         <testsuite name="cli">
             <directory>tests/Cli</directory>
         </testsuite>
