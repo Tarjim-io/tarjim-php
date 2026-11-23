@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tarjim\Cycle;
 
 use Tarjim\Config;
+use Tarjim\Lookup\BundleChoice;
 use Tarjim\RefreshResult;
 use Tarjim\Store\Disk;
 use Tarjim\Store\HeldCopy;
@@ -29,9 +30,14 @@ final class Refresher
     /** @var Config */
     private $config;
 
-    public function __construct(Config $config)
+    /** @var callable(string, string): void */
+    private $log;
+
+    /** @param callable(string, string): void $log */
+    public function __construct(Config $config, callable $log)
     {
         $this->config = $config;
+        $this->log = $log;
     }
 
     /** @param array<string, mixed> $options */
@@ -170,15 +176,25 @@ final class Refresher
             return $this->failed($store, $state, $now, null, 'the release uses a format this client does not know');
         }
 
-        // Nested bundles are not read by this client, so none of their files are fetched.
+        // Checked before any file is fetched: a bundle that is missing or nested would otherwise show
+        // key text on every page while this refresh reported success.
+        $problem = $this->bundleProblem($manifest->manifest->bundles);
+        if ($problem !== null) {
+            return $this->result(RefreshResult::MISCONFIGURED, $problem, null, $store);
+        }
+
+        // Every bundle is recorded so a lookup picks by the same rule as this install, but only flat
+        // ones are read, so only their files are fetched.
         $index = [];
         $needed = [];
+        $skipped = [];
         foreach ($manifest->manifest->bundles as $id => $bundle) {
-            if ($bundle['layout'] === 'nested') {
+            $index[$id] = ['type' => $bundle['type'], 'name' => $bundle['name'], 'layout' => $bundle['layout'], 'languages' => []];
+            if (!BundleChoice::isFlat($bundle['layout'])) {
+                $skipped[$bundle['name']] = $bundle['name'];
                 continue;
             }
             foreach ($manifest->manifest->files[$id] ?? [] as $language => $file) {
-                $index[$id] = $index[$id] ?? ['type' => $bundle['type'], 'name' => $bundle['name'], 'languages' => []];
                 $index[$id]['languages'][$language] = $file->hash;
                 $needed[$file->hash] = $file;
             }
@@ -240,8 +256,31 @@ final class Refresher
             return $this->result(RefreshResult::FAILED, self::UNWRITTEN, null, $store);
         }
         $store->prune($now, $installed);
+        if ($skipped !== []) {
+            $this->warn('the release has bundles this client does not read, because they are not flat: ' . implode(', ', $skipped));
+        }
 
         return $this->result(RefreshResult::UPDATED, 'release ' . $meta->releaseId . ' installed', null, $store);
+    }
+
+    /**
+     * @param array<string, array{type: string, name: string, layout: string|null}> $bundles
+     * @return string|null what is wrong with the configured bundle in this release
+     */
+    private function bundleProblem(array $bundles): ?string
+    {
+        $configured = $this->config->get('bundle');
+        $name = is_string($configured) && $configured !== '' ? $configured : 'default';
+        $id = BundleChoice::find($bundles, $name);
+        if ($id === null) {
+            return "the configured bundle '" . $name . "' is not in the release";
+        }
+        $layout = $bundles[$id]['layout'];
+        if (!BundleChoice::isFlat($layout)) {
+            return "the configured bundle '" . $name . "' " . ($layout === 'nested' ? 'is nested; create it as a flat bundle' : 'must be a flat bundle');
+        }
+
+        return null;
     }
 
     private function unreleased(Store $store, State $state, int $now): RefreshResult
@@ -317,6 +356,15 @@ final class Refresher
         $disk = $this->config->get('disk');
 
         return is_string($dir) && $disk instanceof Disk ? new Store($disk, $dir) : null;
+    }
+
+    /** A logger that throws must never fail a refresh that has already installed. */
+    private function warn(string $message): void
+    {
+        try {
+            ($this->log)('warning', $message);
+        } catch (\Throwable $ignored) {
+        }
     }
 
     private function now(): int

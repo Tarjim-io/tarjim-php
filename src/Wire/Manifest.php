@@ -69,7 +69,8 @@ final class Manifest
             if (!is_string($type) || !is_string($name)) {
                 continue;
             }
-            $kept[$id] = ['type' => $type, 'name' => $name, 'layout' => is_string($layout) ? $layout : null];
+            // A layout that is not a string is not flat either.
+            $kept[$id] = ['type' => $type, 'name' => $name, 'layout' => $layout === null || is_string($layout) ? $layout : ''];
         }
 
         // A file list for a bundle that was dropped (or never declared) is of no use to anyone.

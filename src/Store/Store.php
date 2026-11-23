@@ -111,6 +111,67 @@ final class Store
         );
     }
 
+    /** The release index file current.json names, without checking the files behind it. */
+    public function pointerName(): ?string
+    {
+        $current = $this->readJson($this->dir . '/current.json');
+        $index = $current['release'] ?? null;
+
+        return is_string($index) && preg_match(self::INDEX_NAME, $index) === 1 ? $index : null;
+    }
+
+    /**
+     * The installed release's bundles for reading: the index file's name and, per bundle id, its
+     * type, name, layout and language => object hash. Every bundle of the release is listed, flat
+     * or not, so a name resolves the same way here as when it was installed; only a flat one has
+     * languages. Lenient: a bundle or language that is not understood is dropped. Null when there
+     * is no installed release or its index is unusable.
+     *
+     * @return array{name: string, bundles: array<string, array{type: string, name: string, layout: string|null, languages: array<string, string>}>}|null
+     */
+    public function currentIndex(): ?array
+    {
+        $name = $this->pointerName();
+        if ($name === null) {
+            return null;
+        }
+        $index = $this->readJson($this->dir . '/releases/' . $name);
+        $raw = $index['bundles'] ?? null;
+        if (!is_array($raw)) {
+            return null;
+        }
+        $bundles = [];
+        foreach ($raw as $id => $bundle) {
+            $type = is_array($bundle) ? ($bundle['type'] ?? null) : null;
+            $bundleName = is_array($bundle) ? ($bundle['name'] ?? null) : null;
+            $files = is_array($bundle) ? ($bundle['languages'] ?? null) : null;
+            if (!is_string($type) || !is_string($bundleName) || !is_array($files)) {
+                continue;
+            }
+            $layout = $bundle['layout'] ?? null;
+            $languages = [];
+            foreach ($files as $language => $hash) {
+                if (is_string($hash) && self::isHash($hash)) {
+                    $languages[(string) $language] = $hash;
+                }
+            }
+            $bundles[(string) $id] = [
+                'type' => $type,
+                'name' => $bundleName,
+                // A layout that is not a string is not flat either.
+                'layout' => $layout === null || is_string($layout) ? $layout : '',
+                'languages' => $languages,
+            ];
+        }
+
+        return ['name' => $name, 'bundles' => $bundles];
+    }
+
+    public function readObject(string $hash): ?string
+    {
+        return self::isHash($hash) ? $this->disk->read($this->objectPath($hash)) : null;
+    }
+
     public function hasObject(string $hash): bool
     {
         return self::isHash($hash) && $this->disk->mtime($this->objectPath($hash)) !== null;
