@@ -2,11 +2,14 @@
 
 declare(strict_types=1);
 
-// Lists every released value that tHtml() would change, so the change can be reviewed before an
-// app moves to this package. Reads a local copy only: run `refresh` into the directory first.
+// Lists every released value whose tHtml() output a reader would see differently from the stored
+// text, so the change can be reviewed before an app moves to this package. Reads a local copy only:
+// run `refresh` into the directory first.
 //
-//   php scripts/thtml-diff.php --dir=/absolute/store/dir [--legacy] [--bundle=<name>]
+//   php scripts/thtml-diff.php --dir=/absolute/store/dir [--legacy] [--bundle=<name>] [--all]
 //
+// The two sides are compared after decoding HTML entities, so a bare `&` becoming `&amp;` or `&#39;`
+// becoming `'` is not listed; --all lists every textual difference instead.
 // Output: one tab-separated line per changed value (bundle, language, key, stored, tHtml output),
 // with tabs and line breaks shown as \t and \n. A summary goes to stderr.
 // Exit: 0 nothing changes, 1 some values change, 2 usage or an unreadable copy.
@@ -28,13 +31,14 @@ foreach ([dirname(__DIR__) . '/vendor/autoload.php', dirname(__DIR__, 3) . '/aut
     }
 }
 
-$options = getopt('', ['dir:', 'legacy', 'bundle:']);
+$options = getopt('', ['dir:', 'legacy', 'bundle:', 'all']);
 $dir = is_array($options) && isset($options['dir']) && is_string($options['dir']) ? $options['dir'] : '';
 if ($dir === '' || $dir[0] !== '/') {
-    fwrite(STDERR, "usage: php scripts/thtml-diff.php --dir=/absolute/store/dir [--legacy] [--bundle=<name>]\n");
+    fwrite(STDERR, "usage: php scripts/thtml-diff.php --dir=/absolute/store/dir [--legacy] [--bundle=<name>] [--all]\n");
     exit(2);
 }
 $legacy = isset($options['legacy']);
+$all = isset($options['all']);
 $only = isset($options['bundle']) && is_string($options['bundle']) ? $options['bundle'] : null;
 
 $store = new Store(new LocalDisk(), rtrim($dir, '/'));
@@ -44,6 +48,14 @@ if ($index === null) {
     exit(2);
 }
 
+// What a reader sees, roughly as a browser reads it: entities decoded, except that a `<` meant as
+// text (escaped, or not followed by a letter, `/`, `!` or `?`) stays distinct from one that starts a
+// tag. Otherwise stored `x<y>z`, shown as "xz", would compare equal to tHtml()'s "x&lt;y&gt;z".
+$seen = static function (string $html): string {
+    $html = (string) preg_replace('/&(?:lt|#0*60|#x0*3c);|<(?![A-Za-z\/!?])/i', "\u{E000}", $html);
+
+    return html_entity_decode($html, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+};
 $show = static function (string $text): string {
     return strtr($text, ["\\" => "\\\\", "\t" => '\t', "\n" => '\n', "\r" => '\r']);
 };
@@ -76,7 +88,7 @@ foreach ($index['bundles'] as $bundle) {
             }
             $expected = $sample === [] ? $value : Placeholders::fill($value, $sample, $legacy);
             $rendered = SafeHtml::render($value, $sample, $legacy);
-            if ($rendered !== $expected) {
+            if ($all ? $rendered !== $expected : $seen($rendered) !== $seen($expected)) {
                 $changed++;
                 echo implode("\t", [$show($bundle['name']), $show((string) $language), $show((string) $key), $show($value), $show($rendered)]), "\n";
             }
@@ -84,5 +96,5 @@ foreach ($index['bundles'] as $bundle) {
     }
 }
 
-fwrite(STDERR, "{$checked} values checked, {$changed} would change\n");
+fwrite(STDERR, "{$checked} values checked, {$changed} " . ($all ? 'differ as text' : 'change what a reader sees') . "\n");
 exit($changed === 0 ? 0 : 1);

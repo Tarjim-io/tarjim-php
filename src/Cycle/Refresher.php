@@ -178,7 +178,7 @@ final class Refresher
 
         // Checked before any file is fetched: a bundle that is missing or nested would otherwise show
         // key text on every page while this refresh reported success.
-        $problem = $this->bundleProblem($manifest->manifest->bundles);
+        $problem = $this->bundleProblem($manifest->manifest->bundles, $meta->releaseId);
         if ($problem !== null) {
             return $this->result(RefreshResult::MISCONFIGURED, $problem, null, $store);
         }
@@ -267,13 +267,20 @@ final class Refresher
      * @param array<string, array{type: string, name: string, layout: string|null}> $bundles
      * @return string|null what is wrong with the configured bundle in this release
      */
-    private function bundleProblem(array $bundles): ?string
+    private function bundleProblem(array $bundles, string $releaseId): ?string
     {
         $configured = $this->config->get('bundle');
         $name = is_string($configured) && $configured !== '' ? $configured : 'default';
         $id = BundleChoice::find($bundles, $name);
         if ($id === null) {
-            return "the configured bundle '" . $name . "' is not in the release";
+            // Name what the release does have: the usual cause is a bundle created under another name.
+            $names = array_values(array_unique(array_map(static function (array $bundle): string {
+                return $bundle['name'];
+            }, $bundles)));
+            sort($names, SORT_STRING);
+            $listed = count($names) > 20 ? implode(', ', array_slice($names, 0, 20)) . ', …' : implode(', ', $names);
+
+            return "the configured bundle '" . $name . "' is not in release " . $releaseId . '; ' . ($names === [] ? 'it has no bundles' : 'it has: ' . $listed);
         }
         $layout = $bundles[$id]['layout'];
         if (!BundleChoice::isFlat($layout)) {

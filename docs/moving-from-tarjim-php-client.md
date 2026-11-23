@@ -123,8 +123,10 @@ Behaviour you may notice:
    php vendor/tarjim/tarjim-php/scripts/thtml-diff.php --dir=/var/lib/myapp/tarjim --legacy
    ```
 
-   It lists every value whose `_T` output differs from the stored text (tab-separated: bundle,
-   language, key, stored, output). Fix the text in Tarjim, or accept the change.
+   It lists every value whose `_T` output a reader would see differently from the stored text
+   (tab-separated: bundle, language, key, stored, output): a dropped tag, attribute, link or text.
+   Differences only in how characters are written, such as `&` becoming `&amp;`, are not listed;
+   `--all` lists them too. Fix the text in Tarjim, or accept the change.
 8. **Remove** the old cache folder (on the marketing site it sits inside the web root:
    `public/tarjim/app`), the old `chmod 777` steps and the old config variables.
 
