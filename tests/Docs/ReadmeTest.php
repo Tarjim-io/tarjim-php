@@ -76,5 +76,41 @@ final class ReadmeTest extends TestCase
         self::assertSame('alpha', $stage[1] ?? null, 'published as alpha until a real site runs on the package');
         self::assertStringContainsString('**' . ucfirst($stage[1]) . '.**', $readme);
     }
+
+    public function testTheReadmeHasTheSectionsReadersLookForInOrder(): void
+    {
+        preg_match_all('/^## (.+)$/m', (string) file_get_contents(dirname(__DIR__, 2) . '/README.md'), $m);
+
+        self::assertSame([
+            'Status',
+            'Requirements',
+            'Install',
+            'Quick start',
+            'The local copy',
+            'Configuration',
+            'Lookups',
+            'Errors',
+            'Export pulls',
+            'Moving from `joylab/tarjim-php-client`',
+            'Documentation & support',
+            'Development',
+            'Licence',
+        ], $m[1]);
+    }
+
+    public function testSecurityReportsGoToSupportPrivately(): void
+    {
+        $security = (string) @file_get_contents(dirname(__DIR__, 2) . '/SECURITY.md');
+
+        self::assertStringContainsString('support@tarjim.io', $security);
+        self::assertStringContainsString('support@tarjim.io', (string) file_get_contents(dirname(__DIR__, 2) . '/README.md'));
+    }
+
+    public function testTheChangelogHasAnEntryForTheCurrentVersion(): void
+    {
+        $changelog = (string) @file_get_contents(dirname(__DIR__, 2) . '/CHANGELOG.md');
+
+        self::assertStringContainsString('## [' . \Tarjim\Version::SDK . ']', $changelog);
+    }
 }
 
