@@ -75,6 +75,8 @@ final class SignOffScriptTest extends LookupCase
             'greater' => 'a > b',
             'filepond' => 'Drag & Drop your files or <span class="filepond--label-action">Browse</span>',
             'dropped' => '<font color="red">red</font> text',
+            'less' => 'Less than <10 minutes',
+            'unknown.tag' => 'x<y>z',
         ]);
     }
 
@@ -87,8 +89,10 @@ final class SignOffScriptTest extends LookupCase
         }, array_values(array_filter(explode("\n", $out))));
 
         self::assertSame(1, $code, $err);
-        self::assertSame(['dropped'], $keys);
-        self::assertStringContainsString('6 values checked, 1 change what a reader sees', $err);
+        sort($keys);
+        // x<y>z shows as "xz" in a browser as stored; tHtml() keeps the text, so a reader sees it.
+        self::assertSame(['dropped', 'unknown.tag'], $keys);
+        self::assertStringContainsString('8 values checked, 2 change what a reader sees', $err);
     }
 
     public function testAllListsEveryTextualDifference(): void
@@ -100,6 +104,6 @@ final class SignOffScriptTest extends LookupCase
         }, array_values(array_filter(explode("\n", $out))));
         sort($keys);
 
-        self::assertSame(['apos', 'archive', 'dropped', 'filepond', 'greater', 'search'], $keys);
+        self::assertSame(['apos', 'archive', 'dropped', 'filepond', 'greater', 'less', 'search', 'unknown.tag'], $keys);
     }
 }
